@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 
@@ -25,10 +26,12 @@ class OrthogMLP(nn.Module):
         self.activations = []
 
     def forward(self, x):
-        self.activations = [x]
+        x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
+        self.activations = [x_and_bias]
         for layer in self.layers[:-1]:
             x = self.relu(layer(x))
-            self.activations.append(x)
+            x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
+            self.activations.append(x_and_bias)
 
         # self.collect_activations(activation)  # TODO taking this out for orthog decomposition
 
