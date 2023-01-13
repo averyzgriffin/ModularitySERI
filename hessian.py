@@ -76,3 +76,46 @@ def show_hessian(model, dataLoader, loss_func, goal_and):
     plt.hist(eigenlist, bins=100)
     # plt.show()
     return eigenvectors, eigenvalues, eigenvectors.transpose(0,1)
+
+
+def compute_hessian(model, dataLoader, loss_func, goal_and):
+    device = torch.device("cpu")
+
+    all_batches_x = []
+    all_batches_labels = []
+
+    for b, (x, label) in enumerate(dataLoader):
+        # if b > 1:  # TODO I removed this
+        #     break
+        x = x.to(device)
+        _and, _or = label
+        result = _and if goal_and else _or
+        result = result.type(torch.float).to(device)
+
+        all_batches_x.append(x)
+        all_batches_labels.append(result)
+
+    all_batches_x = torch.cat(all_batches_x, dim=0)#.cuda()
+    all_batches_labels = torch.cat(all_batches_labels, dim=0)#.cuda()
+
+    # Accumulate batches
+    def calculate_loss_function(*params):
+        names = list(n for n, _ in model.named_parameters())
+        preds = _stateless.functional_call(model, {n: p for n, p in zip(names, params)}, all_batches_x)
+        return loss_func(preds, all_batches_labels)
+
+    H = torch.autograd.functional.hessian(calculate_loss_function, tuple(model.parameters()))
+
+    rows = []
+    shapes = [p.shape for p in model.parameters()]
+    for i in range(len(H)):
+        rows.append(torch.cat([H[j][i].view(shapes[j].numel(), shapes[i].numel()) for j in range(len(H))], dim=0))
+
+    full_hessian = torch.cat(rows, dim=1)
+
+    eigenvalues, eigenvectors = torch.linalg.eigh(full_hessian)
+    eigenvalues = eigenvalues.float()
+
+    return full_hessian, eigenvectors, eigenvalues
+
+
