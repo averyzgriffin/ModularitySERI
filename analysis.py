@@ -3,33 +3,6 @@ import numpy as np
 import torch
 
 
-def preprocess_grams(lams: list, N: list):
-    # Plot per layer
-    # repeated_tensors = [lams[i].repeat(N[i]).detach() for i in range(len(lams))]
-    # return repeated_tensors
-    # Don't plot per layer
-    repeated_tensors = [lams[i].repeat(N[i]) for i in range(len(lams))]
-    return torch.cat(repeated_tensors, dim=0).detach()
-
-
-def preprocess_lams_full_network(lams: list, N: list):
-    x = [lams[0][N[i]:N[i+1]+1].repeat(N[i]) for i in range(len(N))]
-    return torch.cat(x, dim=0).detach()
-
-
-def repeat_and_concatenate(lam, N):
-    ind = [9, 9, 5, 3]
-    split_tensors = []
-    start_idx = 0
-    for i in ind:
-        end_idx = start_idx + i
-        split_tensors.append(lam[start_idx:end_idx])
-        start_idx = end_idx
-    repeated_tensors = [split_tensors[j].repeat(N[j]) for j in range(len(N))]
-    concatenated_tensor = torch.cat(repeated_tensors)
-    return concatenated_tensor.detach()
-
-
 def plot_magnitude_frequency(values1, values2):
     # Compute the magnitudes of the values
     print("Min+Max eigenvalues of Gram Matrix: ", min(values1), max(values1))
@@ -125,6 +98,70 @@ def plot_magnitude_frequency_by_layer(values1, values2):
         ax.set_xlabel('Magnitude')
         ax.set_ylabel('Frequency')
         ax.legend()
+    plt.show()
+
+
+def plot_all(eigs_layer, eigs_net, eigs_hess, eigs_layer2, eigs_net2, eigs_hess2):
+    magnitudes1 = torch.sqrt(torch.abs(eigs_layer*torch.sqrt(torch.tensor(2))))  # TODO ask if we should be scaling still
+    magnitudes2 = torch.sqrt(torch.abs(eigs_net*torch.sqrt(torch.tensor(2))))
+    magnitudes3 = torch.sqrt(torch.abs(eigs_hess))
+
+    magnitudes4 = torch.sqrt(torch.abs(eigs_layer2*torch.sqrt(torch.tensor(2))))  # TODO ask if we should be scaling still
+    magnitudes5 = torch.sqrt(torch.abs(eigs_net2*torch.sqrt(torch.tensor(2))))
+    magnitudes6 = torch.sqrt(torch.abs(eigs_hess2))
+
+    # Count number of values in range
+    count1 = torch.sum(torch.where(magnitudes1 < 0.4, 1, 0))
+    # count2 = torch.sum(torch.where(magnitudes2 < 0.25, 1, 0))
+    count3 = torch.sum(torch.where(magnitudes3 < 0.1, 1, 0))
+    count4 = torch.sum(torch.where(magnitudes4 < 0.4, 1, 0))
+    # count5 = torch.sum(torch.where(magnitudes5 < 0.25, 1, 0))
+    count6 = torch.sum(torch.where(magnitudes6 < 0.1, 1, 0))
+
+    print(f'Number of network 1 gram-layer eigenvalues less than 0.4: {count1}')
+    print(f'Number of network 2 gram-layer eigenvalues less than 0.4: {count4}')
+    print(f'Number of network 1 hessian eigenvalues less than 0.1: {count3}')
+    print(f'Number of network 2 hessian eigenvalues less than 0.1: {count6}')
+
+    # Determine the range of magnitudes
+    min_mag = min(torch.min(magnitudes1), torch.min(magnitudes2), torch.min(magnitudes3),
+                  torch.min(magnitudes4), torch.min(magnitudes5), torch.min(magnitudes6)).detach()
+    max_mag = max(torch.max(magnitudes1), torch.max(magnitudes2), torch.max(magnitudes3),
+                  torch.max(magnitudes4), torch.max(magnitudes5), torch.max(magnitudes6)).detach()
+
+    # Create bins for the magnitudes
+    bins = torch.linspace(min_mag, max_mag, steps=150)
+
+    # Compute the histogram of magnitudes
+    hist1, edges1 = torch.histogram(magnitudes1, bins=bins)
+    hist2, edges2 = torch.histogram(magnitudes2, bins=bins)
+    hist3, edges3 = torch.histogram(magnitudes3, bins=bins)
+    hist4, edges4 = torch.histogram(magnitudes4, bins=bins)
+    hist5, edges5 = torch.histogram(magnitudes5, bins=bins)
+    hist6, edges6 = torch.histogram(magnitudes6, bins=bins)
+
+    fig, axes = plt.subplots(nrows=3, ncols=2,  sharex="all", sharey="all")
+    fig.suptitle('Eigenvalues')
+
+    width1 = (edges1[1] - edges1[0]) * .75
+    width2 = (edges2[1] - edges2[0]) * .75
+    width3 = (edges3[1] - edges3[0]) * .75
+    width4 = (edges4[1] - edges4[0]) * .75
+    width5 = (edges5[1] - edges5[0]) * .75
+    width6 = (edges6[1] - edges6[0]) * .75
+    axes[0][0].bar(edges1[:-1], hist1, width=width1, color='blue', label='Gram Per Layer')
+    axes[1][0].bar(edges2[:-1], hist2, width=width2, color='orange', label='Gram Full Network')
+    axes[2][0].bar(edges3[:-1], hist3, width=width3, color='green', label='Hessian')
+    axes[0][1].bar(edges4[:-1], hist4, width=width4, color='blue', label='Gram Per Layer')
+    axes[1][1].bar(edges5[:-1], hist5, width=width5, color='orange', label='Gram Full Network')
+    axes[2][1].bar(edges6[:-1], hist6, width=width6, color='green', label='Hessian')
+
+    axes[1][0].set_ylabel('Frequency')
+    axes[2][1].set_xlabel('Magnitude')
+    axes[0][1].legend()
+    axes[1][1].legend()
+    axes[2][1].legend()
+
     plt.show()
 
 
