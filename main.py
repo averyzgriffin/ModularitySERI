@@ -9,7 +9,7 @@ from eigen import compute_eigens
 from gram import compute_grams, preprocess_grams, preprocess_lams_full_network, repeat_and_concatenate
 from hessian import compute_hessian
 from models import OrthogMLP
-from train import TrainerRetina
+from train import TrainerRetina, Trainer
 
 
 conf_path = os.getcwd()
@@ -38,6 +38,45 @@ def retina(batch_size):
     trainer2.train()
 
     return [network1, network2]
+
+
+def mnist():
+    device = torch.device("cpu")
+    batch_size = 1024
+
+    train_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=True,
+                                                              transform=transforms.Compose([transforms.ToTensor(),
+                                                                transforms.Normalize((0.1307,), (0.3081,))])),
+                                                                batch_size=batch_size,
+                                                                shuffle=True)
+
+    test_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data',download=True,train=False,
+                                                             transform=transforms.Compose([transforms.ToTensor(),
+                                                                 transforms.Normalize((0.1307,), (0.3081,))])), # TODO I don't like this normalize
+                                                            batch_size=1,
+                                                            shuffle=True)
+
+    network = OrthogMLP(784, 64, 64, 64, 10).to(device)
+    loss_fc = torch.nn.CrossEntropyLoss()
+    epochs = 1
+
+    trainer = Trainer(network, loss_fc, epochs, train_loader, device)
+    trainer.train()
+
+    for test_image, test_label in test_loader:
+        visualize_prediction(network, test_image, test_label)
+
+    return [network]
+
+
+def visualize_prediction(model, test_image, test_label):
+    model.eval()
+    with torch.no_grad():
+        prediction = model(test_image.reshape(1, -1))
+        prediction = torch.argmax(prediction, dim=1)
+        plt.imshow(test_image.squeeze(), cmap='gray')
+        plt.title(f'Ground Truth: {test_label}  Prediction: {prediction.item()}')
+        plt.show()
 
 
 def compute_matrices(models: list, dataloader, loss_fc, N):
@@ -85,7 +124,9 @@ def plot_eigens(eigens):
 
 if __name__ == "__main__":
     batch_size = 256
-    retina(batch_size)
+    # models = retina(batch_size)
+    models = mnist()
+
 
 
 
