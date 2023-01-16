@@ -18,16 +18,18 @@ class Trainer:
 
     def train(self):
         for i in range(self.epochs):
+            epoch_loss = 0
             for b, (x, y) in enumerate(self.dataloader):
                 x = x.to(self.device)
-                prediction = self.model(x)
+                prediction = self.model(x.reshape(len(x), -1))
                 self.opt.zero_grad()
-                self.loss = self.loss_fc(prediction.view(-1), y.float().to(self.device))
-                # print("Loss: ", self.loss)
+                self.loss = self.loss_fc(prediction, y.to(self.device))
                 self.loss.backward()
                 self.opt.step()
+                epoch_loss += self.loss
 
-        print("Final Loss: ", self.loss)
+            print(f"Epoch {i} Average Loss: ", epoch_loss / (b+1))
+        print("Final Epoch Loss: ", epoch_loss / (b+1))
 
 
 class TrainerRetina(Trainer):
