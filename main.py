@@ -1,7 +1,8 @@
 import os
+from matplotlib import pyplot as plt
 import torch
 from torch.utils.data import DataLoader
-from torch.nn.utils import _stateless
+from torchvision import datasets, transforms
 
 from analysis import plot_magnitude_frequency, plot_magnitude_frequency_by_layer, plot_hessians, plot_all
 from datasets import RetinaDataset
