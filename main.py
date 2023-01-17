@@ -50,7 +50,7 @@ def mnist(batch_size, device, num_models, loss_fc, N):
 
     test_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data',download=True,train=False,
                                                              transform=transforms.Compose([transforms.ToTensor(),
-                                                                 transforms.Normalize((0.1307,), (0.3081,))])), # TODO I don't like this normalize
+                                                                 transforms.Normalize((0.1307,), (0.3081,))])),
                                                             batch_size=1,
                                                             shuffle=True)
 
@@ -64,8 +64,8 @@ def mnist(batch_size, device, num_models, loss_fc, N):
         trainer.train()
         models.append(network)
 
-    for test_image, test_label in test_loader:
-        visualize_prediction(network, test_image, test_label)
+        # for test_image, test_label in test_loader:
+        #     visualize_prediction(network, test_image, test_label)
 
     return models, train_loader
 
@@ -106,14 +106,15 @@ def compute_gram_hess_eigs(models: list, dataloader, loss_fc, N, per_layer, devi
 
     return Gram_eigs, Hess_eigs
 
-def plot_eigens(eigens):
-    # Analysis
-    print("Plotting Frequencies")
+
+def plot_eigens(gram_lams, hess_lams):
+    print("Plots Eigens")
     # plot_magnitude_frequency(lam[0].detach(), h_lam)
     # plot_magnitude_frequency(lam, h_lam)
     # plot_hessians(h_lam, h_lam2)
     # plot_magnitude_frequency_by_layer(lam, h_lam)
     # plot_all(lam, lam_full, h_lam, lam2, lam_full2, h_lam2)
+    pass
 
 
 if __name__ == "__main__":
