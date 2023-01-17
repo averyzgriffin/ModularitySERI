@@ -82,25 +82,8 @@ def show_hessian(model, dataLoader, loss_func, goal_and):
     return eigenvectors, eigenvalues, eigenvectors.transpose(0,1)
 
 
-def compute_hessian(model, dataLoader, loss_func, goal_and):
-    device = torch.device("cpu")
-
-    all_batches_x = []
-    all_batches_labels = []
-
-    for b, (x, label) in enumerate(dataLoader):
-        # if b > 1:  # TODO I removed this
-        #     break
-        x = x.to(device)
-        _and, _or = label
-        result = _and if goal_and else _or
-        result = result.type(torch.float).to(device)
-
-        all_batches_x.append(x)
-        all_batches_labels.append(result)
-
-    all_batches_x = torch.cat(all_batches_x, dim=0)#.cuda()
-    all_batches_labels = torch.cat(all_batches_labels, dim=0)#.cuda()
+def compute_hessian(model, dataloader, loss_func, device):
+    all_batches_x, all_batches_labels = model.get_x_y_batches(dataloader, device)
 
     # Accumulate batches
     def calculate_loss_function(*params):
