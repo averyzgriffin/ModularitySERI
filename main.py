@@ -17,9 +17,8 @@ conf_path = os.getcwd()
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
-def retina(batch_size):
+def retina(batch_size, device):
 
-    device = torch.device("cpu")
 
     beltalowda = RetinaDataset(8)
     dataLoader = torch.utils.data.DataLoader(beltalowda, batch_size=batch_size)
@@ -38,7 +37,7 @@ def retina(batch_size):
     trainer1.train()
     trainer2.train()
 
-    return [network1, network2]
+    return [network1, network2], dataLoader
 
 
 def mnist():
