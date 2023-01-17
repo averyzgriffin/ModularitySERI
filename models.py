@@ -37,13 +37,25 @@ class OrthogMLP(nn.Module):
 
         return self.layers[-1](x)
 
-    # def collect_activations(self, activation):
-    #     flattened_activation = []
-    #     for layer in activation[:-1]:
-    #         flattened_activation += layer.squeeze().tolist()
-    #     flattened_activation += activation[-1].tolist()[0]
-    #
-    #     self.activations[tuple(flattened_activation[:4])] = flattened_activation
+    def get_loss(self, dataloader, loss_fc, device):
+        losses = []
+        for b, (x, y) in enumerate(dataloader):
+            x = x.to(device)
+            prediction = self(x.reshape(len(x), -1))
+            loss = loss_fc(prediction, y.to(device))
+            losses.append(loss.item())
+        return np.mean(losses)
+
+    def get_x_y_batches(self, dataloader, device):
+        all_batches_x = []
+        all_batches_y = []
+        for b, (x, y) in enumerate(dataloader):
+            x = x.reshape(len(x), -1).to(device)
+            prediction = self(x)
+            all_batches_x.append(x)
+            all_batches_y.append(prediction)
+
+        return torch.cat(all_batches_x, dim=0), torch.cat(all_batches_y, dim=0)
 
 
 class SimpleMLP(nn.Module):
