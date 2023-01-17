@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -22,7 +23,6 @@ class OrthogMLP(nn.Module):
 
         self.layers = add_layers(self, dimensions)
         self.relu = nn.LeakyReLU()
-        # self.activations = dict()
         self.activations = []
 
     def forward(self, x):
@@ -56,7 +56,7 @@ class SimpleMLP(nn.Module):
 
         self.relu = nn.LeakyReLU()
 
-        self.activations = dict()
+        self.activations_dict = dict()
         self.clusters = []
         self.m1_patterns, self.m2_patterns = [], []
         self.m1_counter = dict()
@@ -83,7 +83,7 @@ class SimpleMLP(nn.Module):
             flattened_activation += layer.squeeze().tolist()
         flattened_activation += activation[-1].tolist()[0]
 
-        self.activations[tuple(flattened_activation[:4])] = flattened_activation
+        self.activations_dict[tuple(flattened_activation[:4])] = flattened_activation
         self.extract_modules(self.clusters, flattened_activation)
 
     def extract_modules(self, clusters, activation):
