@@ -124,9 +124,17 @@ def plot_eigens(eigens):
 
 
 if __name__ == "__main__":
-    batch_size = 256
+    batch_size = 1024
+    device = torch.device("cpu")
+    loss_fc = torch.nn.CrossEntropyLoss()
+    N = [64, 10]
+    num_models = 1
+    per_layer = True
+
     # models = retina(batch_size)
-    models = mnist()
+    trained_models, dataloader = mnist(batch_size, device, num_models, loss_fc, N)
+    gram_lams, hess_lams = compute_gram_hess_eigs(trained_models, dataloader, loss_fc, N, per_layer, device)
+    plot_eigens(gram_lams, hess_lams)
 
 
 
