@@ -80,9 +80,11 @@ def visualize_prediction(model, test_image, test_label):
         plt.show()
 
 
-def compute_matrices(models: list, dataloader, loss_fc, N):
-    network1 = models[0]
-    network2 = models[1]
+def compute_gram_hess_eigs(models: list, dataloader, loss_fc, N, per_layer, device):
+    Gram_eigs = []
+    Hess_eigs = []
+    print("Computing Matrices")
+    for network in models:
 
     matrices = []
     # Gram Matrix
@@ -112,6 +114,7 @@ def compute_matrices(models: list, dataloader, loss_fc, N):
 
     return matrices
 
+    return Gram_eigs, Hess_eigs
 
 def plot_eigens(eigens):
     # Analysis
