@@ -4,11 +4,11 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from analysis import plot_magnitude_frequency, plot_magnitude_frequency_by_layer, plot_hessians, plot_all
+from analysis import plot_all
 from datasets import RetinaDataset
 from eigen import compute_eigens
-from gram import compute_grams, preprocess_grams, preprocess_lams_full_network, repeat_and_concatenate
-from hessian import compute_hessian
+from gram import compute_grams, preprocess_lams, preprocess_lams_full_network, repeat_and_concatenate
+from hessian import compute_hessian, manual_approximation
 from models import OrthogMLP
 from train import TrainerRetina, Trainer
 
