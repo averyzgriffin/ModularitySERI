@@ -54,12 +54,15 @@ def mnist(batch_size, device, num_models, loss_fc, N):
                                                             batch_size=1,
                                                             shuffle=True)
 
-    network = OrthogMLP(784, 64, 64, 64, 10).to(device)
-    loss_fc = torch.nn.CrossEntropyLoss()
-    epochs = 1
+    models = []
+    for m in range(num_models):
+        print("Training Model # ", m)
+        network = OrthogMLP(784, *N).to(device)
+        epochs = 1
 
-    trainer = Trainer(network, loss_fc, epochs, train_loader, device)
-    trainer.train()
+        trainer = Trainer(network, loss_fc, epochs, train_loader, device)
+        trainer.train()
+        models.append(network)
 
     for test_image, test_label in test_loader:
         visualize_prediction(network, test_image, test_label)
