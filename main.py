@@ -86,33 +86,23 @@ def compute_gram_hess_eigs(models: list, dataloader, loss_fc, N, per_layer, devi
     print("Computing Matrices")
     for network in models:
 
-    matrices = []
-    # Gram Matrix
-    grams = compute_grams(network1, dataloader, per_layer=True)
-    grams2 = compute_grams(network2, dataloader, per_layer=True)
+        # Gram Matrix
+        if per_layer:
+            grams = compute_grams(network, dataloader, per_layer=True)
+            U, lam = compute_eigens(grams)
+            lam = preprocess_lams(lam, N)
+        else:
+            grams = compute_grams(network, dataloader, per_layer=False)
+            U, lam = compute_eigens(grams)
 
-    U, lam = compute_eigens(grams)
-    U2, lam2 = compute_eigens(grams2)
+        # Hessian
+        # h, h_u, h_lam = compute_hessian(network, dataloader, loss_fc, device)
+        # Approximate Hessian
+        # broadness = manual_approximation(network, loss_fc, dataloader, device)
 
-    # N = [8, 4, 2, 1]  # TODO hardcoded
-    lam = preprocess_grams(lam, N)
-    lam2 = preprocess_grams(lam2, N)
-
-    grams_full = compute_grams(network1, dataloader, per_layer=False)
-    U_full, lam_full = compute_eigens(grams_full)
-    lam_full = lam_full[0].detach()
-
-    grams_full2 = compute_grams(network2, dataloader, per_layer=False)
-    U_full2, lam_full2 = compute_eigens(grams_full2)
-    lam_full2 = lam_full2[0].detach()
-
-    # Hessian
-    print("Computing Hessian")
-    goal_and = True  # TODO Hardcoded
-    h, h_u, h_lam = compute_hessian(network1, dataloader, loss_fc, goal_and)
-    h2, h_u2, h_lam2 = compute_hessian(network2, dataloader, loss_fc, goal_and)
-
-    return matrices
+        Gram_eigs.append(lam)
+        # Hess_eigs.append(h_lam)
+        # Hess_eigs.append(broadness)
 
     return Gram_eigs, Hess_eigs
 
