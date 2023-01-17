@@ -1,6 +1,10 @@
 import torch
 from torch.nn.utils import _stateless
 from matplotlib import pyplot as plt
+import numpy as np
+from scipy.optimize import minimize
+
+from manual_broadness import BroadnessMeasurer
 
 
 def show_hessian(model, dataLoader, loss_func, goal_and):
@@ -118,4 +122,42 @@ def compute_hessian(model, dataLoader, loss_func, goal_and):
 
     return full_hessian, eigenvectors, eigenvalues
 
+
+def newton_approximate(model, loss_fn, dataloader, device):
+    all_batches_x, all_batches_labels = model.get_x_y_batches(dataloader, device)
+
+    def closure(x, y):
+        model.zero_grad()
+        output = model(x)
+        loss = loss_fn(output, y)
+        loss.backward()
+        return loss
+
+    # Optimize using BFGS
+    # params = list(model.parameters())
+    # res = minimize(closure, params, method='BFGS')
+
+    # Optimize using L-BFGS-B
+    params = list(model.parameters())
+    res = minimize(closure, params, method='L-BFGS-B')
+    hessian = res.x
+
+
+def manual_approximation(model, loss_fc, dataloader, device):
+    # Construct broadness measurer
+    broadness = BroadnessMeasurer(model, dataloader, loss_fc)
+
+    # Get starting loss
+    starting_loss = model.get_loss(dataloader, loss_fc, device)
+
+    # RUN
+    print("Running Broadness Measurer")
+    losses, deltas = broadness.run(std_list=[.001], num_itrs=2, normalize=False)
+
+    # Average
+    mean_losses = [np.mean(l) for l in losses]
+    diffs = [ml - starting_loss for ml in mean_losses]
+    mean_loss_across_stds = np.mean(mean_losses)
+
+    return mean_losses
 
