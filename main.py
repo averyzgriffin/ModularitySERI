@@ -40,9 +40,7 @@ def retina(batch_size, device):
     return [network1, network2], dataLoader
 
 
-def mnist():
-    device = torch.device("cpu")
-    batch_size = 1024
+def mnist(batch_size, device, num_models, loss_fc, N):
 
     train_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=True,
                                                               transform=transforms.Compose([transforms.ToTensor(),
@@ -66,7 +64,7 @@ def mnist():
     for test_image, test_label in test_loader:
         visualize_prediction(network, test_image, test_label)
 
-    return [network]
+    return models, train_loader
 
 
 def visualize_prediction(model, test_image, test_label):
