@@ -40,7 +40,7 @@ def retina(batch_size, device):
     return [network1, network2], dataLoader
 
 
-def mnist(batch_size, device, num_models, loss_fc, N):
+def mnist(batch_size, device, num_models, loss_fc, N, epochs):
 
     train_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=True,
                                                               transform=transforms.Compose([transforms.ToTensor(),
@@ -55,19 +55,20 @@ def mnist(batch_size, device, num_models, loss_fc, N):
                                                             shuffle=True)
 
     models = []
-    for m in range(num_models):
-        print("Training Model # ", m)
-        network = OrthogMLP(784, *N).to(device)
-        epochs = 1
+    valid_losses = []
 
-        trainer = Trainer(network, loss_fc, epochs, train_loader, device)
+    for m in range(num_models):
+        network = OrthogMLP(784, *N).to(device)
+        trainer = Trainer(network, N, loss_fc, epochs, train_loader, test_loader, device)
+
         trainer.train()
+
         models.append(network)
 
         # for test_image, test_label in test_loader:
         #     visualize_prediction(network, test_image, test_label)
 
-    return models, train_loader
+    return models, trainer.valid_loss, trainer.gram_lams, train_loader
 
 
 def visualize_prediction(model, test_image, test_label):
@@ -121,14 +122,21 @@ if __name__ == "__main__":
     batch_size = 1024
     device = torch.device("cpu")
     loss_fc = torch.nn.CrossEntropyLoss()
-    N = [64, 10]
+    N = [512, 256, 128, 64, 32, 10]
+    epochs = 100
     num_models = 1
     per_layer = True
 
     # models = retina(batch_size)
-    trained_models, dataloader = mnist(batch_size, device, num_models, loss_fc, N)
-    gram_lams, hess_lams = compute_gram_hess_eigs(trained_models, dataloader, loss_fc, N, per_layer, device)
-    plot_eigens(gram_lams, hess_lams)
+    trained_models, valid_losses, gram_lams, dataloader = mnist(batch_size, device, num_models, loss_fc, N, epochs)
+    # gram_lams = compute_gram_eigs(trained_models, dataloader, N, per_layer, device)
+    # hess_lams = compute_hess_eigs(trained_models, dataloader, loss_fc, device)
+    # gram_lams = [torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1),
+    #              torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1)]
+    # valid_losses = [1, .9, .8, .4, .2, .1, .006, .001, .001, .001, .0005, .0001]
+    # plot_valid_losses(gram_lams, valid_losses)
+    # load_and_evaluate_models("saved_models/", loss_fc, device, N, batch_size)
+
 
 
 
