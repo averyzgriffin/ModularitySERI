@@ -1,6 +1,60 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import plotly.express as px
+
+
+# def plot_valid_lossesold(eigs, losses):
+#     x = np.arange(1, len(losses)+1)
+#
+#     magnitudes = torch.sqrt(torch.abs(eigs * torch.sqrt(torch.tensor(2))))
+#
+#     min_mag = torch.min(magnitudes).detach()
+#     max_mag = torch.max(magnitudes).detach()
+#
+#
+#     bins = torch.linspace(min_mag, max_mag, steps=0)
+#     hist, edges = torch.histogram(magnitudes, bins=bins)
+#
+#     fig, axes = plt.subplots(nrows=len(eigs), ncols=2, sharex="all", sharey="all")
+#     fig.suptitle('Eigenvalues vs Validation Loss')
+#
+#     axes[0][0].bar(edges[:-1], hist, color='blue', label='Eigenvalues of L2 Norm')
+#     axes[0][1].plot(x, losses, color='orange', label='Validation Loss')
+#
+#     plt.show()
+
+
+def plot_valid_losses(eigs, losses):
+    fig, axes = plt.subplots(nrows=len(eigs), ncols=2, sharex="all")
+    fig.suptitle('Eigenvalues')
+
+    print("Number of eigs: ", [len(eig) for eig in eigs])
+
+    for i, eig in enumerate(eigs):
+
+        magnitudes = torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2))))
+
+        min_mag = torch.min(magnitudes).detach()
+        max_mag = torch.max(magnitudes).detach()
+
+        bins = torch.linspace(min_mag, max_mag, steps=750)
+        hist, edges = torch.histogram(magnitudes, bins=bins)
+        width = (edges[1] - edges[0]) * .75
+
+        axes[i][0].bar(edges[:-1], hist, width=width, color='blue', label='Eigenvalues of L2 Norm')
+        axes[i][0].set_title(f"Epoch {i+1}")
+
+        axes[i][1].bar(edges[:-1], hist, width=width, color='blue', label='Eigenvalues of L2 Norm')
+        axes[i][1].set_yscale('log')
+        axes[i][1].set_title(f"Log Scale Epoch {i+1}")
+
+    fig2 = plt.figure()
+    x = np.arange(1, len(losses) + 1)
+    plt.plot(x, losses, color='orange', label='Validation Loss', marker='o')
+    plt.xticks(x)
+
+    plt.show()
 
 
 def plot_magnitude_frequency(values1, values2):
