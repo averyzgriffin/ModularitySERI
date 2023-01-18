@@ -81,32 +81,34 @@ def visualize_prediction(model, test_image, test_label):
         plt.show()
 
 
-def compute_gram_hess_eigs(models: list, dataloader, loss_fc, N, per_layer, device):
+def compute_gram_eigs(models: list, dataloader, N, per_layer, device):
     Gram_eigs = []
-    Hess_eigs = []
-    print("Computing Matrices")
-    for network in models:
 
-        # Gram Matrix
+    print("Computing Grams")
+    for network in models:
         if per_layer:
-            grams = compute_grams(network, dataloader, per_layer=True)
+            grams = compute_grams(network, dataloader, True, device)
             U, lam = compute_eigens(grams)
             lam = preprocess_lams(lam, N)
         else:
-            grams = compute_grams(network, dataloader, per_layer=False)
+            grams = compute_grams(network, dataloader, False, device)
             U, lam = compute_eigens(grams)
 
-        # Hessian
-        # h, h_u, h_lam = compute_hessian(network, dataloader, loss_fc, device)
-        # Approximate Hessian
-        # broadness = manual_approximation(network, loss_fc, dataloader, device)
-
         Gram_eigs.append(lam)
-        # Hess_eigs.append(h_lam)
-        # Hess_eigs.append(broadness)
 
-    return Gram_eigs, Hess_eigs
+    return Gram_eigs
 
+
+def compute_hess_eigs(models: list, dataloader, loss_fc, device):
+    Hess_eigs = []
+
+    print("Computing Hessians")
+    for network in models:
+        h, h_u, h_lam = compute_hessian(network, dataloader, loss_fc, device)
+        # h = manual_approximation(network, loss_fc, dataloader, device)
+        Hess_eigs.append(h_lam)
+
+    return Hess_eigs
 
 def plot_eigens(gram_lams, hess_lams):
     print("Plots Eigens")
