@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from analysis import plot_all
+from analysis import plot_all, plot_valid_losses
 from datasets import RetinaDataset
 from eigen import compute_eigens
 from gram import compute_grams, preprocess_lams, preprocess_lams_full_network, repeat_and_concatenate
@@ -109,15 +109,6 @@ def compute_hess_eigs(models: list, dataloader, loss_fc, device):
         Hess_eigs.append(h_lam)
 
     return Hess_eigs
-
-def plot_eigens(gram_lams, hess_lams):
-    print("Plots Eigens")
-    # plot_magnitude_frequency(lam[0].detach(), h_lam)
-    # plot_magnitude_frequency(lam, h_lam)
-    # plot_hessians(h_lam, h_lam2)
-    # plot_magnitude_frequency_by_layer(lam, h_lam)
-    # plot_all(lam, lam_full, h_lam, lam2, lam_full2, h_lam2)
-    pass
 
 
 if __name__ == "__main__":
