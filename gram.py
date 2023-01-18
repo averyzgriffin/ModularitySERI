@@ -1,9 +1,9 @@
 import torch
 
 
-def compute_grams(model, dataloader, per_layer=True):
+def compute_grams(model, dataloader, per_layer, device):
     for b, (x, label) in enumerate(dataloader):
-        prediction = model(x.reshape(len(x), -1))
+        prediction = model(x.reshape(len(x), -1).to(device))
         activations = model.activations
         if b == 0:
             Grams = [torch.matmul(act.transpose(0, 1), act) for act in activations]
