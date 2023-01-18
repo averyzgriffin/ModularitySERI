@@ -26,8 +26,8 @@ class OrthogMLP(nn.Module):
         self.activations = []
 
     def forward(self, x):
-        x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
-        self.activations = [x_and_bias]
+        # x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
+        self.activations = []
         for layer in self.layers[:-1]:
             x = self.relu(layer(x))
             x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
