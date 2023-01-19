@@ -15,24 +15,24 @@ def load_and_evaluate_models(model_dir, loss_func, device, N, batch_size):
 
     model_paths = [os.path.join(model_dir, path) for path in os.listdir(model_dir) if path.endswith('.pt')]
     sorted_paths = sorted(model_paths, key=lambda x: int(x.split("_")[-1].split(".")[0]))
-    losses = []
+    scores = []
     for path in sorted_paths:
         model = OrthogMLP(784, *N).to(device)
         model.load_state_dict(torch.load(path))
-        loss = validation_fn(model, test_loader, loss_func, device)
-        losses.append(loss)
-        print(f'Validation loss for {path} is {loss}')
+        score = validation_fn(model, test_loader, loss_func, device)
+        scores.append(score)
+        print(f'Validation score for {path} is {score}')
     # Plot the losses
-    plt.plot(losses)
+    plt.plot(scores)
     plt.xlabel('Epoch')
-    plt.ylabel('Validation Loss')
+    plt.ylabel('Validation Accuracy')
     plt.show()
 
 
 def validation_fn(model, test_loader, loss_func, device):
-    loss = model.get_loss(test_loader, loss_func, device)
-    normalized_loss = loss / len(test_loader)
-    return normalized_loss
+    # score = model.get_loss(test_loader, loss_func, device) / len(test_loader)
+    score = model.get_accuracy(test_loader, device)
+    return score
 
 
 if __name__ == "__main__":

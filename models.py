@@ -46,6 +46,18 @@ class OrthogMLP(nn.Module):
             losses.append(loss.item())
         return np.mean(losses)
 
+    def get_accuracy(self, dataloader, device):
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for x, y in dataloader:
+                x = x.to(device)
+                prediction = self(x.reshape(len(x), -1))
+                predicted = torch.argmax(prediction.data, dim=1)
+                total += y.size(0)
+                correct += (predicted == y.to(device)).sum().item()
+        return correct / total
+
     def get_x_y_batches(self, dataloader, device):
         all_batches_x = []
         all_batches_y = []
