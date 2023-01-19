@@ -38,7 +38,7 @@ class Trainer:
                 self.opt.step()
                 epoch_loss += self.loss
 
-            torch.save(self.model.state_dict(), f'saved_models/model_epoch_{i}.pt')
+            torch.save(self.model.state_dict(), f'saved_models/32_128_32/model_epoch_{i}.pt')
 
             # self.valid_loss.append(self.validate())
             # self.gram_lams.append(self.compute_grams())
