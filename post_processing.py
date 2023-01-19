@@ -40,9 +40,44 @@ def validation_fn(model, test_loader, loss_func, device):
     return score
 
 
+def compute_gram_eigs(models: list, dataloader, N, per_layer, device):
+    Gram_eigs = []
+
+    print("Computing Grams")
+    for network in models:
+        if per_layer:
+            grams = compute_grams(network, dataloader, True, device)
+            U, lam = compute_eigens(grams)
+            lam = preprocess_lams(lam, N)
+        else:
+            grams = compute_grams(network, dataloader, False, device)
+            U, lam = compute_eigens(grams)
+
+        Gram_eigs.append(lam)
+    return Gram_eigs
+
+
 if __name__ == "__main__":
     batch_size = 1024
     device = torch.device("cpu")
     loss_fc = torch.nn.CrossEntropyLoss()
     N = [64, 64, 10]
-    load_and_evaluate_models("saved_models/", loss_fc, device, N, batch_size)
+
+    test_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=False,
+                                                             transform=transforms.Compose([transforms.ToTensor(),
+                                                                       transforms.Normalize((0.1307,), (0.3081,))])),
+                                                                batch_size=batch_size,
+                                                                shuffle=True)
+
+    models = load_models("saved_models/", device, N)
+    evaluate_models(models, loss_fc, test_loader, device)
+    eigs = compute_gram_eigs(models, test_loader, N, True, device)
+    plot_valid_losses(eigs)
+
+
+
+
+
+
+
+
