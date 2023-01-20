@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from analysis import plot_valid_losses
+from analysis import interactive_histogram
 from eigen import compute_eigens
 from gram import compute_grams, preprocess_lams
 from models import OrthogMLP
@@ -69,10 +69,10 @@ if __name__ == "__main__":
                                                                 batch_size=batch_size,
                                                                 shuffle=True)
 
-    models = load_models("saved_models/", device, N)
-    evaluate_models(models, loss_fc, test_loader, device)
+    models = load_models("saved_models/512_256_64_SGD/", device, N, these_models)
+    scores = evaluate_models(models, loss_fc, test_loader, device)
     eigs = compute_gram_eigs(models, test_loader, N, True, device)
-    plot_valid_losses(eigs)
+    interactive_histogram(list_of_eigs, list_of_scores, these_models)
 
 
 
