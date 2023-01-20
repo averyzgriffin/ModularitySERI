@@ -1,35 +1,116 @@
+import warnings
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import plotly.express as px
+import plotly.graph_objects as go
 
 
-# def plot_valid_lossesold(eigs, losses):
-#     x = np.arange(1, len(losses)+1)
+# def interactive_slider_and_button(list_of_eigs, list_of_scores, which_models):
+#     magnitudes = [[torch.sqrt(torch.abs(torch.tensor(tensor) * torch.sqrt(torch.tensor(2)))) for tensor in eigs] for eigs in list_of_eigs]
 #
-#     magnitudes = torch.sqrt(torch.abs(eigs * torch.sqrt(torch.tensor(2))))
+#     all_data = [torch.cat(eigs, dim=0).detach() for eigs in magnitudes]
+#     bin_sizes = [(torch.max(all_data[i]) - torch.min(all_data[i])) / 1000 for i in range(len(all_data))]
 #
-#     min_mag = torch.min(magnitudes).detach()
-#     max_mag = torch.max(magnitudes).detach()
+#     traces = [[go.Histogram(x=data, name=f'Epoch {which_models[i]} Score {list_of_scores[j][i]}',
+#                            xbins=dict(start=torch.min(all_data[j]), end=torch.max(all_data[j]), size=bin_sizes[j]),
+#                            marker=dict(line=dict(width=1, color="black"))) for i, data in enumerate(magnitudes[j])] for j in range(len(magnitudes))]
 #
+#     slider = dict(steps=[dict(method='update',
+#                               args=[{'visible': [i == j for j in range(len(magnitudes[i])) for i in range(len(list_of_eigs))]},
+#                                     {'title': f'Epoch {which_models[i]} Validation Accuracy {list_of_scores[i]}'}],
+#                               label=f'{which_models[i]}') for i in range(len(magnitudes))],
+#                   currentvalue=dict(visible=True, prefix='Epoch ', xanchor='right', font=dict(size=20, color='#666')))
 #
-#     bins = torch.linspace(min_mag, max_mag, steps=0)
-#     hist, edges = torch.histogram(magnitudes, bins=bins)
+#     dropdown_menu = dict(buttons=list(), direction='down', pad=dict(r=10, t=10), showactive=True,
+#                          x=0.1, xanchor='left', y=1.1, yanchor='top')
 #
-#     fig, axes = plt.subplots(nrows=len(eigs), ncols=2, sharex="all", sharey="all")
-#     fig.suptitle('Eigenvalues vs Validation Loss')
+#     options = [dict(args=[{'visible': [i == j for j in range(len(list_of_eigs))]}, {'title': f'Option {i + 1}'}],
+#                     label=f'Option {i + 1}',
+#                     method='update') for i in range(len(list_of_eigs))]
 #
-#     axes[0][0].bar(edges[:-1], hist, color='blue', label='Eigenvalues of L2 Norm')
-#     axes[0][1].plot(x, losses, color='orange', label='Validation Loss')
+#     dropdown_menu['buttons'] = options
 #
-#     plt.show()
+#     layout = go.Layout(title_text='Eigenvalues', xaxis_title_text='Magnitude', yaxis_title_text='Count',
+#                        xaxis=dict(range=[torch.min(all_data[0]), torch.max(all_data[0])]),
+#                        yaxis=dict(range=[0, max(data.shape[0] for data in magnitudes)]),
+#                        sliders=[slider],
+#                        updatemenus=[dropdown_menu])
+#
+#     fig = go.Figure(data=traces, layout=layout)
+#     fig.show()
 
 
-def plot_valid_losses(eigs, losses):
-    fig, axes = plt.subplots(nrows=len(eigs), ncols=2, sharex="all")
+def interactive_histogram(eigs, scores, which_models, n_bins):
+
+    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
+    all_data = torch.cat(magnitudes, dim=0).detach()
+    bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins
+
+    traces = [go.Histogram(x=data, name=f'Epoch {which_models[i]} Score {scores[i]}',
+                           xbins=dict(start=torch.min(all_data), end=torch.max(all_data), size=bin_size),
+                           marker=dict(line=dict(width=1, color="black"))) for i, data in enumerate(magnitudes)]
+
+    slider = dict(steps=[dict(method='update',
+                              args=[{'visible': [i == j for j in range(len(magnitudes))]}, {'title': f'Epoch {which_models[i]} Validation Accuracy {scores[i]}'}],
+                              label=f'{which_models[i]}') for i in range(len(magnitudes))],
+                  currentvalue=dict(visible=True, prefix='Epoch ', xanchor='right', font=dict(size=20, color='#666')))
+
+    layout = go.Layout(title_text='Eigenvalues', xaxis_title_text='Magnitude', yaxis_title_text='Count',
+                       xaxis=dict(range=[torch.min(all_data), torch.max(all_data)]),
+                       yaxis=dict(range=[0, max(data.shape[0] for data in magnitudes)]),
+                       sliders=[slider])
+
+    fig = go.Figure(data=traces, layout=layout)
+    # fig.show()
+    fig.write_html("eigens/index2.html")
+
+
+def plotly_bar(eigs, scores, which_models):
+
+    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
+    fig = go.Figure()
+    all_data = torch.cat(magnitudes, dim=0).detach()
+
+    bin_size = (torch.max(all_data) - torch.min(all_data)) / 1000
+
+    for i, data in enumerate(magnitudes):
+        fig.add_trace(go.Histogram(
+            x=data,
+            name=f'Epoch {which_models[i]} Score {scores[i]}',
+            xbins=dict(
+                start=torch.min(all_data),
+                end=torch.max(all_data),
+                size=bin_size
+            ),
+            marker_color=f'#{np.random.randint(0, 16777215):06x}',
+            opacity=0.75
+        ))
+
+    fig.update_layout(
+        title_text='Eigenvalues',
+        xaxis_title_text='Value',
+        yaxis_title_text='Count',
+        bargap=0.2,
+        bargroupgap=0.1
+    )
+
+    fig.show()
+
+
+
+def violin(eigs, losses):
+    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
+    violins = [go.Violin(y=lam, name=f'Epoch {i + 1}', box_visible=True, meanline_visible=True, points=False) for i, lam in enumerate(magnitudes)]
+    layout = go.Layout(title='Eigen Values')
+    fig = go.Figure(data=violins, layout=layout)
+    fig.show()
+
+
+def plot_scores_and_eigs(eigs, losses):
+    warnings.warn("This method is not computing bins correctly. Bins aren't global.", type=UserWarning)
+    fig, axes = plt.subplots(nrows=1, ncols=2)
     fig.suptitle('Eigenvalues')
-
-    print("Number of eigs: ", [len(eig) for eig in eigs])
 
     for i, eig in enumerate(eigs):
 
