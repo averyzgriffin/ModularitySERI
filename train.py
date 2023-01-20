@@ -43,15 +43,13 @@ class Trainer:
             # self.valid_loss.append(self.validate())
             # self.gram_lams.append(self.compute_grams())
 
-
             print(f"Epoch {i} Average Loss: ", epoch_loss / (b+1))
         print("Final Epoch Loss: ", epoch_loss / (b+1))
 
     def validate(self):
-        print("validating")
-        loss = self.model.get_loss(self.test_loader, self.loss_fc, self.device)
-        normalized_loss = loss / len(self.test_loader)
-        return normalized_loss
+        # score = self.model.get_loss(self.test_loader, self.loss_fc, self.device) / len(self.test_loader)
+        score = self.model.get_accuracy(self.test_loader, self.device)
+        return score
 
     def compute_grams(self):
         print("Gram Computations")
