@@ -44,7 +44,7 @@ def compute_gram_eigs(models: list, dataloader, N, per_layer, device):
         if per_layer:
             grams = compute_grams(network, dataloader, True, device)
             U, lam = compute_eigens(grams)
-            lam = preprocess_lams(lam, N)
+            lam = preprocess_lams(lam, N[1:])
         else:
             grams = compute_grams(network, dataloader, False, device)
             U, lam = compute_eigens(grams)
