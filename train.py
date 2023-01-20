@@ -59,7 +59,7 @@ class Trainer:
         print("Gram Computations")
         grams = compute_grams(self.model, self.dataloader, True, self.device)
         U, lam = compute_eigens(grams)
-        lam = preprocess_lams(lam, self.N[1:])
+        lam = preprocess_lams(lam, self.N[2:])
         return lam
 
 
