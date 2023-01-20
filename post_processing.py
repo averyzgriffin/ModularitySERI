@@ -10,7 +10,7 @@ from gram import compute_grams, preprocess_lams
 from models import OrthogMLP
 
 
-def load_models(model_dir, device, N):
+def load_models(model_dir, device, N, which_models):
     model_paths = [os.path.join(model_dir, path) for path in os.listdir(model_dir) if path.endswith('.pt')]
     sorted_paths = sorted(model_paths, key=lambda x: int(x.split("_")[-1].split(".")[0]))
     models = []
@@ -18,7 +18,7 @@ def load_models(model_dir, device, N):
         model = OrthogMLP(784, *N).to(device)
         model.load_state_dict(torch.load(path))
         models.append(model)
-    return models
+    return [models[i] for i in which_models]
 
 
 def evaluate_models(models, loss_func, test_loader, device):
