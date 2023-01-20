@@ -27,11 +27,7 @@ def evaluate_models(models, loss_func, test_loader, device):
         score = validation_fn(models[m], test_loader, loss_func, device)
         scores.append(score)
         print(f'Validation score for Model {m} is {score}')
-
-    plt.plot(scores)
-    plt.xlabel('Epoch')
-    plt.ylabel('Validation Accuracy')
-    plt.show()
+    return scores
 
 
 def validation_fn(model, test_loader, loss_func, device):
