@@ -41,8 +41,7 @@ import plotly.graph_objects as go
 #     fig.show()
 
 
-def interactive_histogram(eigs, scores, which_models, n_bins):
-
+def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
     magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
     all_data = torch.cat(magnitudes, dim=0).detach()
     bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins[0]
@@ -70,7 +69,7 @@ def interactive_histogram(eigs, scores, which_models, n_bins):
 
     fig = go.Figure(data=traces, layout=layout)
     # fig.show()
-    fig.write_html("eigens/index2.html")
+    fig.write_html(f"{save_path}/index.html")
 
 
 def plotly_bar(eigs, scores, which_models):
@@ -103,7 +102,6 @@ def plotly_bar(eigs, scores, which_models):
     )
 
     fig.show()
-
 
 
 def violin(eigs, losses):
