@@ -102,7 +102,7 @@ def compute_hess_eigs(models: list, dataloader, loss_fc, device):
 
 def create_model_name(task, optimizer, lr, N, regularization):
     optimizer_name = optimizer.__name__
-    lr_str = str(lr).replace(".", "")
+    lr_str = str(lr).replace("0.", "")
     N_str = "x".join(str(n) for n in N)
     name = f"{task}_{N_str}_{optimizer_name}_LR{lr_str}_reg{regularization}"
     return name
@@ -114,22 +114,21 @@ if __name__ == "__main__":
     loss_fc = torch.nn.CrossEntropyLoss()
     task = "mnist"
     optimizer = torch.optim.SGD
-    lr = .01
-    N = [784, 500, 10]
-    epochs = 2
-    num_models = 4
+    lr = .1
+    Ns = [[784, 256, 64, 32, 10],[784, 32, 32, 32, 10],[784, 32, 32, 32, 32, 32, 32, 10], [784, 512, 10], [784, 64, 10]]
+    epochs = 100
+    num_trials = 10
     regularization = 0
-    # model_name_check = "mnist_512x256x64_SGD_LR1e1_reg0"
-    # save_path = f"saved_models/512_256_64_SGD_{i}"
 
-    for i in range(num_models):
-        model_name = create_model_name(task, optimizer, lr, N, regularization)
-        save_path = f"saved_models/{task}/{model_name}/{model_name}_trial{str(i).zfill(3)}"
-        os.makedirs(save_path, exist_ok=True)
-        model_name = model_name+f"_trial{str(i).zfill(3)}"
+    for N in Ns:
+        for i in range(num_trials):
+            model_name = create_model_name(task, optimizer, lr, N, regularization)
+            save_path = f"saved_models/{task}/{model_name}/{model_name}_trial{str(i).zfill(3)}"
+            os.makedirs(save_path, exist_ok=True)
+            model_name = model_name+f"_trial{str(i).zfill(3)}"
 
-        trained_models = mnist(batch_size, device, loss_fc, lr, optimizer, regularization, N, epochs, save_path, model_name)
-        # models = retina(batch_size)
-        # gram_lams = compute_gram_eigs(trained_models, dataloader, N, per_layer, device)
-        # hess_lams = compute_hess_eigs(trained_models, dataloader, loss_fc, device)
+            trained_models = mnist(batch_size, device, loss_fc, lr, optimizer, regularization, N, epochs, save_path, model_name)
+            # models = retina(batch_size)
+            # gram_lams = compute_gram_eigs(trained_models, dataloader, N, per_layer, device)
+            # hess_lams = compute_hess_eigs(trained_models, dataloader, loss_fc, device)
 
