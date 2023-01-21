@@ -1,60 +1,14 @@
 import os
 
 
-# def create_navigation_html(root_dir):
-#     sections = {}
-#     level = 0
-#     for dirpath, dirnames, filenames in os.walk(root_dir):
-#         level += len(dirnames)
-#         for filename in filenames:
-#             if filename.endswith(".html"):
-#                 sections.setdefault(os.path.basename(os.path.dirname(dirpath)), {})[os.path.basename(dirpath)] = os.path.join(dirpath, filename)
-#         level -= 1
-#
-#     html = """
-# <!DOCTYPE html>
-# <html>
-#   <head>
-#     <title>My HTML Pages</title>
-#     <link rel="stylesheet" type="text/css" href="styles.css">
-#   </head>
-#   <body>
-#     <header>
-#         <nav>
-# """
-#     for section in sections:
-#         html += f"            <a href='#{section}'>{section}</a>\n"
-#
-#     html += """        </nav>
-#     </header>
-#     <main>
-#         <h1>Welcome to My HTML Pages</h1>
-# """
-#     for section, pages in sections.items():
-#         html += f"        <section class='level-{level}' id='{section}'>\n"
-#         html += f"            <h2>{section}</h2>\n"
-#         html += "            <ul>\n"
-#         for page in pages.items():
-#             html += f"                <li><a href='{page[1]}'>{page[0]}</a></li>\n"
-#         html += "            </ul>\n"
-#         html += "        </section>\n"
-#         level+=1
-#
-#     html += """    </main>
-#   </body>
-# </html>
-# """
-#
-#     with open("index.html", "w") as file:
-#         file.write(html)
-
-
-def create_navigation_html3(root_dir, save_dir):
+def create_navigation_html(root_dir, save_dir):
     sections = {}
     level = 0
     for dirpath, dirnames, filenames in os.walk(root_dir):
         for dirname in dirnames:
-            sections.setdefault(os.path.basename(os.path.dirname(dirpath)), {})
+            thing = os.path.basename(os.path.dirname(dirpath))
+            if not thing.endswith(".io") and thing != "gram_eigens":
+                sections.setdefault(os.path.basename(os.path.dirname(dirpath)), {})
         for filename in filenames:
             if filename.endswith(".html"):
                 sections.setdefault(os.path.basename(os.path.dirname(dirpath)), {})[os.path.basename(dirpath)] = os.path.join(dirpath, filename)
@@ -63,33 +17,44 @@ def create_navigation_html3(root_dir, save_dir):
 <!DOCTYPE html>
 <html>
   <head>
-    <title>My HTML Pages</title>
-    <link rel="stylesheet" type="text/css" href="styles.css">
+    <title>Modularity Experiments</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
   </head>
   <body>
     <header>
-        <nav>
+        <nav class="navbar navbar-expand-lg navbar-light bg-light">
 """
     for section in sections:
-        html += f"            <a href='#{section}'>{section}</a>\n"
+        html += f"            <a class='nav-item nav-link' href='#{section}'>{section}</a>\n"
 
     html += """        </nav>
     </header>
-    <main>
+     <main>
         <h1>Welcome to My HTML Pages</h1>
+        <div id="accordion">
 """
     for section, pages in sections.items():
-        html += f"        <section class='level-{level}' id='{section}'>\n"
-        html += f"            <h2>{section}</h2>\n"
-        html += "            <ul>\n"
+        html += f"            <div class='card'>\n"
+        html += f"                <div class='card-header' id='heading{section}'>\n"
+        html += f"                    <h5 class='mb-0'>\n"
+        html += f"                        <button class='btn btn-link' data-toggle='collapse' data-target='#collapse{section}' aria-expanded='true' aria-controls='collapse{section}'>\n"
+        html += f"                            {section}\n"
+        html += f"                        </button>\n"
+        html += f"                    </h5>\n"
+        html += f"                </div>\n"
+        html += f"                <div id='collapse{section}' class='collapse' aria-labelledby='heading{section}' data-parent='#accordion'>\n"
+        html += "                    <ul class='list-group list-group-flush'>\n"
         for page in pages.items():
             url = page[1].replace("C:/Users/avery/Projects/github.io/", "https://")
-            html += f"                <li><a href='{url}'>{page[0]}</a></li>\n"
-        html += "            </ul>\n"
-        html += "        </section>\n"
-        level += 1
-
-    html += """    </main>
+            html += f"                        <li class='list-group-item'><a href='{url}'>{page[0]}</a></li>\n"
+        html += "                    </ul>\n"
+        html += "                </div>\n"
+        html += "            </div>\n"
+    html += """        </div>
+    </main>
   </body>
 </html>
 """
@@ -101,101 +66,6 @@ def create_navigation_html3(root_dir, save_dir):
 if __name__ == "__main__":
     root_dir = r"C:\Users\avery\Projects\github.io\averyzgriffin.github.io\gram_eigens".replace("\\", "/")
     save_dir = r"C:\Users\avery\Projects\github.io\averyzgriffin.github.io".replace("\\", "/")
-    create_navigation_html3(root_dir, save_dir)
-# def create_navigation_html2(root_dir):
-#     sections = {}
-#     for dirpath, dirnames, filenames in os.walk(root_dir):
-#         for dirname in dirnames:
-#             sections.setdefault(dirname, {})
-#         for filename in filenames:
-#             if filename.endswith(".html"):
-#                 sections[os.path.basename(dirpath)][filename] = os.path.join(dirpath)
-#
-#     html = """
-# <!DOCTYPE html>
-# <html>
-#   <head>
-#     <title>My HTML Pages</title>
-#     <link rel="stylesheet" type="text/css" href="styles.css">
-#   </head>
-#   <body>
-#     <header>
-#         <nav>
-# """
-#     for section in sections:
-#         html += f"            <a href='#{section}'>{section}</a>\n"
-#
-#     html += """        </nav>
-#     </header>
-#     <main>
-#         <h1>Welcome to My HTML Pages</h1>
-# """
-#     for section, pages in sections.items():
-#         html += f"        <section id='{section}'>\n"
-#         html += f"            <h2>{section}</h2>\n"
-#         html += "            <ul>\n"
-#         for page in pages.items():
-#             html += f"                <li><a href='{page[1]}'>{page[0]}</a></li>\n"
-#         html += "            </ul>\n"
-#         html += "        </section>\n"
-#
-#     html += """    </main>
-#   </body>
-# </html>
-# """
-#
-#     with open("index.html", "w") as file:
-#         file.write(html)
-
-#
-# def create_navigation_html1(root_dir):
-#     sections = {}
-#     for dirpath, dirnames, filenames in os.walk(root_dir):
-#         for filename in filenames:
-#             if filename.endswith(".html"):
-#                 sections.setdefault(os.path.basename(dirpath), []).append(os.path.join(dirpath))
-#
-#     html = """
-# <!DOCTYPE html>
-# <html>
-#   <head>
-#     <title>My HTML Pages</title>
-#     <link rel="stylesheet" type="text/css" href="styles.css">
-#   </head>
-#   <body>
-#     <header>
-#         <nav>
-# """
-#     for section in sections:
-#         html += f"            <a href='#{section}'>{section}</a>\n"
-#
-#     html += """        </nav>
-#     </header>
-#     <main>
-#         <h1>Welcome to My HTML Pages</h1>
-# """
-#     for section, pages in sections.items():
-#         html += f"        <section id='{section}'>\n"
-#         html += f"            <h2>{section}</h2>\n"
-#         html += "            <ul>\n"
-#         for page in pages:
-#             page = page.replace("C:/Users/avery/Projects/github.io/", "https://")
-#             html += f"                <li><a href='{page}'>{os.path.basename(page)}</a></li>\n"
-#         html += "            </ul>\n"
-#         html += "        </section>\n"
-#
-#     html += """    </main>
-#   </body>
-# </html>
-# """
-#
-#     with open("index.html", "w") as file:
-#         file.write(html)
-
-
-if __name__ == "__main__":
-    root_dir = r"C:\Users\avery\Projects\github.io\averyzgriffin.github.io\gram_eigens".replace("\\", "/")
-    save_dir = r"C:\Users\avery\Projects\github.io\averyzgriffin.github.io".replace("\\", "/")
-    create_navigation_html3(root_dir, save_dir)
+    create_navigation_html(root_dir, save_dir)
 
 
