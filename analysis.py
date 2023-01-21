@@ -45,9 +45,9 @@ def interactive_histogram(eigs, scores, which_models, n_bins):
 
     magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
     all_data = torch.cat(magnitudes, dim=0).detach()
-    bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins
+    bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins[0]
 
-    traces = [go.Histogram(x=data, name=f'Epoch {which_models[i]} Score {scores[i]}',
+    traces = [go.Histogram(x=data,
                            xbins=dict(start=torch.min(all_data), end=torch.max(all_data), size=bin_size),
                            marker=dict(line=dict(width=1, color="black"))) for i, data in enumerate(magnitudes)]
 
@@ -56,10 +56,17 @@ def interactive_histogram(eigs, scores, which_models, n_bins):
                               label=f'{which_models[i]}') for i in range(len(magnitudes))],
                   currentvalue=dict(visible=True, prefix='Epoch ', xanchor='right', font=dict(size=20, color='#666')))
 
+    slider_bins = dict(steps=[dict(method='update',
+                                   args=[{'xbins': {'size': (torch.max(all_data) - torch.min(all_data)) / i}}],
+                                   label=f'{i}') for i in n_bins],
+                       currentvalue=dict(visible=True, prefix='Bins ', xanchor='right',
+                                         font=dict(size=20, color='#666')),
+                       pad=dict(t=100))
+
     layout = go.Layout(title_text='Eigenvalues', xaxis_title_text='Magnitude', yaxis_title_text='Count',
                        xaxis=dict(range=[torch.min(all_data), torch.max(all_data)]),
                        yaxis=dict(range=[0, max(data.shape[0] for data in magnitudes)]),
-                       sliders=[slider])
+                       sliders=[slider, slider_bins], showlegend=False)
 
     fig = go.Figure(data=traces, layout=layout)
     # fig.show()
