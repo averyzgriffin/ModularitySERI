@@ -11,19 +11,23 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 class Trainer:
 
-    def __init__(self, model, N, loss_fc, epochs, dataloader, test_loader, device):
+    def __init__(self, model, N, loss_fc, lr, opt, regularization, epochs, dataloader, test_loader, device, save_path, model_name):
         self.model = model
         self.N = N
-        self.loss_fc = loss_fc
         self.epochs = epochs
         self.dataloader = dataloader
         self.test_loader = test_loader
         self.device = device
-        self.loss = None
-        self.opt = torch.optim.Adam(lr=1e-3, params=model.parameters())
+        self.loss_fc = loss_fc
+        self.lr = lr
+        self.regularization = regularization
+        self.opt = opt(lr=self.lr, params=model.parameters(), weight_decay=self.regularization)
         self.compute_validation = False
+        self.loss = None
         self.valid_loss = []
         self.gram_lams = []
+        self.save_path = save_path
+        self.model_name = model_name
 
     def train(self):
         for i in range(self.epochs):
@@ -38,26 +42,24 @@ class Trainer:
                 self.opt.step()
                 epoch_loss += self.loss
 
-            torch.save(self.model.state_dict(), f'saved_models/32_128_32/model_epoch_{i}.pt')
-
+            torch.save(self.model.state_dict(), f'{self.save_path}/{self.model_name}_epoch{str(i).zfill(3)}.pt')
+            # print(f"Validation Accuracy: ", self.validate())
             # self.valid_loss.append(self.validate())
             # self.gram_lams.append(self.compute_grams())
-
 
             print(f"Epoch {i} Average Loss: ", epoch_loss / (b+1))
         print("Final Epoch Loss: ", epoch_loss / (b+1))
 
     def validate(self):
-        print("validating")
-        loss = self.model.get_loss(self.test_loader, self.loss_fc, self.device)
-        normalized_loss = loss / len(self.test_loader)
-        return normalized_loss
+        # score = self.model.get_loss(self.test_loader, self.loss_fc, self.device) / len(self.test_loader)
+        score = self.model.get_accuracy(self.test_loader, self.device)
+        return score
 
     def compute_grams(self):
         print("Gram Computations")
         grams = compute_grams(self.model, self.dataloader, True, self.device)
         U, lam = compute_eigens(grams)
-        lam = preprocess_lams(lam, self.N[1:])
+        lam = preprocess_lams(lam, self.N[2:])
         return lam
 
 

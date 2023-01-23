@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from analysis import plot_all, plot_valid_losses
 from datasets import RetinaDataset
 from eigen import compute_eigens
 from gram import compute_grams, preprocess_lams, preprocess_lams_full_network, repeat_and_concatenate
@@ -40,7 +39,7 @@ def retina(batch_size, device):
     return [network1, network2], dataLoader
 
 
-def mnist(batch_size, device, num_models, loss_fc, N, epochs):
+def mnist(batch_size, device, loss_fc, lr, opt, regularization, N, epochs, save_path, model_name):
 
     train_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=True,
                                                               transform=transforms.Compose([transforms.ToTensor(),
@@ -54,21 +53,11 @@ def mnist(batch_size, device, num_models, loss_fc, N, epochs):
                                                             batch_size=1,
                                                             shuffle=True)
 
-    models = []
-    valid_losses = []
+    network = OrthogMLP(*N).to(device)
+    trainer = Trainer(network, N, loss_fc, lr, opt, regularization, epochs, train_loader, test_loader, device, save_path, model_name)
+    trainer.train()
 
-    for m in range(num_models):
-        network = OrthogMLP(784, *N).to(device)
-        trainer = Trainer(network, N, loss_fc, epochs, train_loader, test_loader, device)
-
-        trainer.train()
-
-        models.append(network)
-
-        # for test_image, test_label in test_loader:
-        #     visualize_prediction(network, test_image, test_label)
-
-    return models, trainer.valid_loss, trainer.gram_lams, train_loader
+    return network
 
 
 def visualize_prediction(model, test_image, test_label):
@@ -111,26 +100,35 @@ def compute_hess_eigs(models: list, dataloader, loss_fc, device):
     return Hess_eigs
 
 
+def create_model_name(task, optimizer, lr, N, regularization):
+    optimizer_name = optimizer.__name__
+    lr_str = str(lr).replace("0.", "")
+    N_str = "x".join(str(n) for n in N)
+    name = f"{task}_{N_str}_{optimizer_name}_LR{lr_str}_reg{regularization}"
+    return name
+
+
 if __name__ == "__main__":
-    batch_size = 1024
-    device = torch.device("cpu")
+    batch_size = 2048
+    device = torch.device("cuda:0")
     loss_fc = torch.nn.CrossEntropyLoss()
-    N = [512, 256, 128, 64, 32, 10]
+    task = "mnist"
+    optimizer = torch.optim.SGD
+    lr = .1
+    Ns = [[784, 256, 64, 32, 10],[784, 32, 32, 32, 10],[784, 32, 32, 32, 32, 32, 32, 10], [784, 512, 10], [784, 64, 10]]
     epochs = 100
-    num_models = 1
-    per_layer = True
+    num_trials = 10
+    regularization = 0
 
-    # models = retina(batch_size)
-    trained_models, valid_losses, gram_lams, dataloader = mnist(batch_size, device, num_models, loss_fc, N, epochs)
-    # gram_lams = compute_gram_eigs(trained_models, dataloader, N, per_layer, device)
-    # hess_lams = compute_hess_eigs(trained_models, dataloader, loss_fc, device)
-    # gram_lams = [torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1),
-    #              torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1), torch.rand(3333, 1)]
-    # valid_losses = [1, .9, .8, .4, .2, .1, .006, .001, .001, .001, .0005, .0001]
-    # plot_valid_losses(gram_lams, valid_losses)
-    # load_and_evaluate_models("saved_models/", loss_fc, device, N, batch_size)
+    for N in Ns:
+        for i in range(num_trials):
+            model_name = create_model_name(task, optimizer, lr, N, regularization)
+            save_path = f"saved_models/{task}/{model_name}/{model_name}_trial{str(i).zfill(3)}"
+            os.makedirs(save_path, exist_ok=True)
+            model_name = model_name+f"_trial{str(i).zfill(3)}"
 
-
-
-
+            trained_models = mnist(batch_size, device, loss_fc, lr, optimizer, regularization, N, epochs, save_path, model_name)
+            # models = retina(batch_size)
+            # gram_lams = compute_gram_eigs(trained_models, dataloader, N, per_layer, device)
+            # hess_lams = compute_hess_eigs(trained_models, dataloader, loss_fc, device)
 
