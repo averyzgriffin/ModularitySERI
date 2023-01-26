@@ -42,7 +42,7 @@ import plotly.graph_objects as go
 
 
 def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
-    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig) * torch.sqrt(torch.tensor(2)))) for eig in eigs]
+    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig))) for eig in eigs]
     all_data = torch.cat(magnitudes, dim=0).detach()
     bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins[0]
 
