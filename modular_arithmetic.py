@@ -4,32 +4,25 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import random
-import time
 
 from models import Transformer
-from neels_visualizations import lines
 
 
-def main():
-    root = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\grokking"
+def main(p, num_layers, d_model, num_heads, frac_train, name, path):
     lr = 1e-3
     weight_decay = 1.0
-    p = 113
-    d_model = 128
+
     fn_name = 'add'  # ['add', 'subtract', 'x2xyy2','rand']
-    frac_train = 0.3
-    num_epochs = 500
+    num_epochs = 15000
     save_models = True
     save_every = 100
     stopping_thresh = -1
     seed = 0
 
-    num_layers = 1
     batch_style = 'full'
     d_vocab = p + 1
     n_ctx = 3
     d_mlp = 4 * d_model
-    num_heads = 4
     assert d_model % num_heads == 0
     d_head = d_model // num_heads
     act_type = 'ReLU'  # ['ReLU', 'GeLU']
@@ -68,13 +61,13 @@ def main():
         model.to('cuda')
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.98))
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda step: min(step / 10, 1))
-        run_name = f"grok_{int(time.time())}"
-        print(f'Run name {run_name}')
+        # run_name = f"grok_{int(time.time())}"
+        print(f'Run name {name}')
         if save_models:
-            save_path = f"{root}/{run_name}"
-            os.makedirs(save_path, exist_ok=True)
+            # save_path = f"{root}/{run_name}"
+            # os.makedirs(save_path, exist_ok=True)
             save_dict = {'model': model.state_dict(), 'train_data': train, 'test_data': test}
-            torch.save(save_dict, f"{save_path}/init.pth")
+            torch.save(save_dict, f"{path}/init.pth")
         train_losses = []
         test_losses = []
         for epoch in range(num_epochs):
@@ -83,7 +76,6 @@ def main():
             train_losses.append(train_loss.item())
             test_losses.append(test_loss.item())
             if epoch % 100 == 0:
-                # print(f"{epoch}_{np.log(train_loss.item()):.4f}_{np.log(test_loss.item()):.4f}")  # _{train_acc.item():.4f}_{test_acc.item():.4f}")
                 print(f"Epoch {epoch} Train Loss: {round(np.log(train_loss.item()),5)} Test Loss: {round(np.log(test_loss.item()), 5)}")
             train_loss.backward()
             optimizer.step()
@@ -102,10 +94,7 @@ def main():
                     'test_loss': test_loss,
                     'epoch': epoch,
                 }
-                torch.save(save_dict, f"{save_path}/{epoch}.pth")
-                print(f"Saved model to {save_path}/{epoch}.pth")
-        # if not save_models:
-        #     os.mkdir(root / run_name)
+                torch.save(save_dict, f"{path}/{name}_{epoch}.pth")
         save_dict = {
             'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
@@ -116,9 +105,8 @@ def main():
             'test_losses': test_losses,
             'epoch': epoch,
         }
-        torch.save(save_dict, f"{save_path}/final.pth")
-        print(f"Saved model to {save_path}/final.pth")
-        lines([train_losses, test_losses], labels=['train', 'test'], log_y=True)
+        torch.save(save_dict, f"{path}/{name}_final.pth")
+        # lines([train_losses, test_losses], labels=['train', 'test'], log_y=True)
 
 
 def gen_train_test(frac_train, num, seed=0):
@@ -153,30 +141,28 @@ def full_loss(model, data, fn):
     return cross_entropy_high_precision(logits, labels)
 
 
-# def test_logits(logits, bias_correction=False, original_logits=None, mode='all'):
-#     # Calculates cross entropy loss of logits representing a batch of all p^2
-#     # possible inputs
-#     # Batch dimension is assumed to be first
-#     if logits.shape[1]==p*p:
-#         logits = logits.T
-#     if logits.shape==torch.Size([p*p, p+1]):
-#         logits = logits[:, :-1]
-#     logits = logits.reshape(p*p, p)
-#     if bias_correction:
-#         # Applies bias correction - we correct for any missing bias terms,
-#         # independent of the input, by centering the new logits along the batch
-#         # dimension, and then adding the average original logits across all inputs
-#         logits = einops.reduce(original_logits - logits, 'batch ... -> ...', 'mean') + logits
-#     if mode=='train':
-#         return cross_entropy_high_precision(logits[is_train], labels[is_train])
-#     elif mode=='test':
-#         return cross_entropy_high_precision(logits[is_test], labels[is_test])
-#     elif mode=='all':
-#         return cross_entropy_high_precision(logits, labels)
+def create_model_name(task_name, p, num_layers, d_model, num_heads, frac_train):
+    name = f"{task_name}_blocks{num_layers}_d{d_model}_heads{num_heads}_p{p}_trainsplit{frac_train}"
+    return name
 
 
 if __name__ == "__main__":
-    main()
+    train_split = [0.4, 0.3]
+    num_trials = 3
+    task = "modular_addition"
+    blocks = 1
+    p = 113
+    d = 128
+    heads = 4
+
+    for i in range(num_trials):
+        for s in range(len(train_split)):
+            model_name = create_model_name(task, p, blocks, d, heads, train_split[s])
+            save_path = f"saved_models/{task}/{model_name}/{model_name}_trial{str(i).zfill(3)}"
+            os.makedirs(save_path, exist_ok=True)
+            model_name = model_name + f"_trial{str(i).zfill(3)}"
+
+            main(p, blocks, d, heads, train_split[s], model_name, save_path)
 
 
 
