@@ -8,7 +8,7 @@ import einops
 def add_layers(model, dimensions):
     layers = []
     for i, (dimension) in enumerate(dimensions):
-        fc = nn.Linear(dimension, dimensions[i + 1])
+        fc = nn.Linear(dimension, dimensions[i + 1], bias=False)
         setattr(model, f"fc{i}", fc)
         layers.append(fc)
         if len(dimensions) == i + 2:
@@ -24,7 +24,7 @@ class OrthogMLP(nn.Module):
         super(OrthogMLP, self).__init__()
 
         self.layers = add_layers(self, dimensions)
-        self.relu = nn.LeakyReLU()
+        self.relu = nn.ReLU()
         self.activations = []
         self.derivatives = []
         self.handles = []
