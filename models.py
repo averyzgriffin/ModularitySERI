@@ -26,19 +26,44 @@ class OrthogMLP(nn.Module):
         self.layers = add_layers(self, dimensions)
         self.relu = nn.LeakyReLU()
         self.activations = []
+        self.derivatives = []
+        self.handles = []
 
     def forward(self, x):
         self.activations = []
         for layer in self.layers[:-1]:
-            # TODO Index your layer here and make changes
-            # if layer == layer_I_want:
-            #     x_change = x[index_source]
-            #     x[index_target] = x_change
             x = self.relu(layer(x))
-            x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
-            self.activations.append(x_and_bias)
+            # x_and_bias = torch.cat((x,torch.ones(x.shape[0],1)), dim=1)
+            # self.activations.append(x)
 
-        return self.layers[-1](x)
+        x = self.layers[-1](x)
+        self.activations.append(x)
+        return x
+
+    def compute_derivatives_hook(self, module, in_, out_):
+        output_of_layer_L = out_
+        mask = (output_of_layer_L > 0).float()
+        weights_L_Lplus1 = module.weight
+        # bias_L_Lplus1 = module.bias
+        # all_edges = torch.cat((weights_L_Lplus1, bias_L_Lplus1.unsqueeze(dim=1)), dim=1)
+        # masked_weights = mask * all_edges.T
+        masked_weights = mask * weights_L_Lplus1.T
+        self.derivatives.append(masked_weights)
+        return out_
+
+    def grab_activations_hook(self, module, in_, out_):
+        # x_and_bias = torch.cat((in_[0],torch.ones(in_[0].shape[0],1)), dim=1)
+        self.activations.append(in_[0])
+        return out_
+
+    def backward_hook(self, module, grad_input, grad_output):
+        # Compute the derivative of the current layer with respect to the previous layer
+        d = grad_output[0].T * module.weight
+        self.derivatives[module] = d
+
+        gt = grad_output[0].view(module.weight.shape[0], -1)
+        derivative = gt.T @ module.weight
+        return (derivative, None)
 
     def get_loss(self, dataloader, loss_fc, device):
         losses = []
