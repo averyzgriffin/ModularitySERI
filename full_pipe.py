@@ -93,22 +93,31 @@ def compute_M(model, grams, dataloader):
 
     add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
 
-    for b, (x, label) in enumerate(dataloader):
-        model.derivatives = []
-        model(x.reshape(len(x), -1).to(device))
+    with torch.no_grad():
+        for b, (x, label) in enumerate(dataloader):
+            model.derivatives = []
+            print("M Computatation # samples processed ", b*len(x))
+            pred = model(x.reshape(len(x), -1).to(device))
 
         # Remove the connection to the phantom bias in the last layer todo this won't work if there is 1 output
         # model.derivatives[-1] = model.derivatives[-1][:,1].reshape(model.derivatives[-1].shape[0], 1)
         model.derivatives[-1] = model.derivatives[-1][:,:,1:]
         # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := L, m:= L+1;
 
-        for n, df in enumerate(model.derivatives):
-            gram = grams[n]
-            M.setdefault(n, 0)
-            # M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
-            #       4x3   3x4   4x4     4x4     4x4     4x4     4x3   3x4
-            # if batches:
-            M[n] += torch.sum((df @ (df.permute(0,2,1) @ (gram @ gram.T))) + (gram @ (gram.T @ (df @ df.permute(0,2,1)))), dim=0)
+            for n, df in enumerate(model.derivatives):
+                gram = grams[n]
+                M.setdefault(n, 0)
+                # M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
+                #       4x3   3x4   4x4     4x4     4x4     4x4     4x3   3x4
+                # if batches:
+                # M[n] += torch.sum( (df @ (df.permute(0,2,1) @ (gram @ gram.T))) + (gram @ (gram.T @ (df @ df.permute(0,2,1)))), dim=0)
+                M[n] += torch.sum((torch.matmul(df, torch.matmul(df.permute(0, 2, 1), torch.matmul(gram, gram.T))) + torch.matmul(gram, torch.matmul(gram.T, torch.matmul(df, df.permute(0, 2, 1))))), dim=0)
+
+            del x, label, model.derivatives, pred, n, df, gram
+            # tracker.print_diff()
+            # print("# items ", len(gc.get_objects()))
+            # gc.collect()
+            # print("# items after collection", len(gc.get_objects()))
 
     for k,v in M.items():
         M[k] = M[k] / DATA_SIZE  #todo change this to be # samples instead of batches
