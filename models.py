@@ -56,6 +56,7 @@ class OrthogMLP(nn.Module):
         # masked_weights = mask * all_edges.T # if not using batches
         masked_weights = torch.einsum("ij,jk->ikj", mask, all_edges)
         self.derivatives.append(masked_weights)
+        del output_of_layer_L, mask, weights_L_Lplus1, bias_L_Lplus1, all_edges, masked_weights
         return out_
 
     def grab_activations_hook(self, module, in_, out_):
