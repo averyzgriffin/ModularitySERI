@@ -75,6 +75,9 @@ def compute_M(model, grams, dataloader):
     add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
 
     for b, (x, label) in enumerate(dataloader):
+        if b == 10:
+            break
+        model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
 
         for n, df in enumerate(model.derivatives):
@@ -97,6 +100,9 @@ def transform_network(model, dataloader, u, s, v):
     add_hooks(model, [model.compute_derivatives_hook, model.grab_activations_hook])
 
     for b, (x, label) in enumerate(dataloader):
+        if b == 10:
+            break
+        model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
 
         for l in range(len(model.layers)):
