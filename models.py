@@ -57,8 +57,8 @@ class OrthogMLP(nn.Module):
         return out_
 
     def grab_activations_hook(self, module, in_, out_):
-        # x_and_bias = torch.cat((in_[0],torch.ones(in_[0].shape[0],1)), dim=1)
-        self.activations.append(in_[0])
+        x_and_bias = torch.cat((in_[0],torch.ones(in_[0].shape[0],1).to(device)), dim=1)
+        self.activations.append(x_and_bias)
         return out_
 
     def backward_hook(self, module, grad_input, grad_output):
