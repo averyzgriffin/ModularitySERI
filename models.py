@@ -5,10 +5,12 @@ import torch.nn.functional as F
 import einops
 
 
+device = torch.device("cpu")
+
 def add_layers(model, dimensions):
     layers = []
     for i, (dimension) in enumerate(dimensions):
-        fc = nn.Linear(dimension, dimensions[i + 1], bias=False)
+        fc = nn.Linear(dimension, dimensions[i + 1], bias=True)
         setattr(model, f"fc{i}", fc)
         layers.append(fc)
         if len(dimensions) == i + 2:
