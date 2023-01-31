@@ -43,11 +43,16 @@ class OrthogMLP(nn.Module):
     def compute_derivatives_hook(self, module, in_, out_):
         output_of_layer_L = out_
         mask = (output_of_layer_L > 0).float()
+        # mask = torch.cat((torch.tensor([1.0]).reshape(1,1), mask), dim=1) # if not using batches
+        ones = torch.ones(output_of_layer_L.shape[0], 1).to(device)
+        mask = torch.cat((ones, mask), dim=1)
         weights_L_Lplus1 = module.weight
-        # bias_L_Lplus1 = module.bias
-        # all_edges = torch.cat((weights_L_Lplus1, bias_L_Lplus1.unsqueeze(dim=1)), dim=1)
-        # masked_weights = mask * all_edges.T
-        masked_weights = mask * weights_L_Lplus1.T
+        bias_L_Lplus1 = module.bias
+        all_edges = torch.cat((bias_L_Lplus1.unsqueeze(dim=1), weights_L_Lplus1), dim=1)
+        all_edges = torch.cat((torch.zeros(1,all_edges.shape[1]).to(device), all_edges), dim=0)
+        all_edges[0][0] = 1
+        # masked_weights = mask * all_edges.T # if not using batches
+        masked_weights = torch.einsum("ij,jk->ikj", mask, all_edges)
         self.derivatives.append(masked_weights)
         return out_
 
