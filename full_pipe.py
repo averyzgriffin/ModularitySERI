@@ -80,6 +80,11 @@ def compute_M(model, grams, dataloader):
         model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
 
+        # Remove the connection to the phantom bias in the last layer todo this won't work if there is 1 output
+        # model.derivatives[-1] = model.derivatives[-1][:,1].reshape(model.derivatives[-1].shape[0], 1)
+        model.derivatives[-1] = model.derivatives[-1][:,:,1:]
+        # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := L, m:= L+1;
+
         for n, df in enumerate(model.derivatives):
             gram = grams[n]
             M.setdefault(n, 0)
