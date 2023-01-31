@@ -90,6 +90,8 @@ def compute_M(model, grams, dataloader):
             M.setdefault(n, 0)
             M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
             #       4x3   3x4   4x4     4x4     4x4     4x4     4x3   3x4
+            # if batches:
+            # M[n] += torch.sum((df.permute(0,2,1) @ (df @ (gram @ gram.T))) + (gram @ (gram.T @ (df.permute(0,2,1) @ df))), dim=0)
 
     for k,v in M.items():
         M[k] = M[k] / (b + 1)
@@ -109,6 +111,7 @@ def transform_network(model, dataloader, u, s, v):
             break
         model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
+        model.derivatives[-1] = model.derivatives[-1][:,:,1:]
 
         for l in range(len(model.layers)):
             # a = torch.diag(s[l + 1])
