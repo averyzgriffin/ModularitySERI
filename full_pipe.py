@@ -1,29 +1,35 @@
 import copy
 import torch
 from torch import nn
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
 from hooks import newedge_hook
 from models import OrthogMLP
+from train import Trainer
+
 
 
 device = torch.device("cpu")
+DATA_SIZE = 60000
 
 
-def main(data):
+def main(train, test, N, loss_fc, lr, opt, regularization, epochs):
+    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\sai\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000_epoch099.pt"
 
-    network = build_model()
+    # network = build_model()
+    # network = train_model(train, test, N, loss_fc, lr, opt, regularization, epochs)
+    network = load_model(path)
 
-    gram = compute_gram(network, data)
+    gram = compute_gram(network, train)
 
     lam, S, U = eigensolve(gram)
 
-    # derivatives = get_derivatives(network, data)  # TODO I think it makes more sense to just compute this on the fly
-
-    M = compute_M(network, gram, data)
+    M = compute_M(network, gram, train)
 
     D, Dinvrs, V = eigensolve(M)
 
-    new_edges = transform_network(network, data, U, S, V)
+    new_edges = transform_network(network, train, U, S, V)
 
     redefined_model = change_edges(network, new_edges)
 
@@ -40,6 +46,19 @@ def build_model():
     return model
 
 
+def train_model(train_loader, test_loader, N, loss_fc, lr, opt, regularization, epochs, save_path="", model_name=""):
+    network = OrthogMLP(*N).to(device)
+    trainer = Trainer(network, N, loss_fc, lr, opt, regularization, epochs, train_loader, test_loader, device, save_path, model_name)
+    trainer.train()
+    return network
+
+
+def load_model(path):
+    model = OrthogMLP(*N).to(device)
+    model.load_state_dict(torch.load(path))
+    return model
+
+
 def compute_gram(model, dataloader):
     """ Orthogonalize the input model using the specified method """
     add_hooks(model, [model.grab_activations_hook])
@@ -47,12 +66,12 @@ def compute_gram(model, dataloader):
         model(x.reshape(len(x), -1).to(device))
         activations = model.activations
         if b == 0:
-            grams = {i: torch.zeros((act.shape[1], act.shape[1])) for i, act in enumerate(activations)}
+            grams = {i: torch.zeros((act.shape[1], act.shape[1])).to(device) for i, act in enumerate(activations)}
         for i, act in enumerate(activations):
             grams[i] += torch.matmul(act.transpose(0, 1), act)
 
     for k,v in grams.items():
-        grams[k] = grams[k] / (b + 1)
+        grams[k] = grams[k] / DATA_SIZE
 
     remove_hooks(model)
     return grams
@@ -75,8 +94,6 @@ def compute_M(model, grams, dataloader):
     add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
 
     for b, (x, label) in enumerate(dataloader):
-        if b == 10:
-            break
         model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
 
@@ -88,13 +105,13 @@ def compute_M(model, grams, dataloader):
         for n, df in enumerate(model.derivatives):
             gram = grams[n]
             M.setdefault(n, 0)
-            M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
+            # M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
             #       4x3   3x4   4x4     4x4     4x4     4x4     4x3   3x4
             # if batches:
-            # M[n] += torch.sum((df.permute(0,2,1) @ (df @ (gram @ gram.T))) + (gram @ (gram.T @ (df.permute(0,2,1) @ df))), dim=0)
+            M[n] += torch.sum((df @ (df.permute(0,2,1) @ (gram @ gram.T))) + (gram @ (gram.T @ (df @ df.permute(0,2,1)))), dim=0)
 
     for k,v in M.items():
-        M[k] = M[k] / (b + 1)
+        M[k] = M[k] / DATA_SIZE  #todo change this to be # samples instead of batches
 
     remove_hooks(model)
     return M
@@ -103,17 +120,15 @@ def compute_M(model, grams, dataloader):
 def transform_network(model, dataloader, u, s, v):
     """ Calculate the new_edges of the model using the specified method """
     edges = {}
-    model.derivatives = []
     add_hooks(model, [model.compute_derivatives_hook, model.grab_activations_hook])
 
     for b, (x, label) in enumerate(dataloader):
-        if b == 10:
-            break
         model.derivatives = []
         model(x.reshape(len(x), -1).to(device))
+        # model.derivatives[-1] = model.derivatives[-1][:,1].reshape(model.derivatives[-1].shape[0], 1)
         model.derivatives[-1] = model.derivatives[-1][:,:,1:]
 
-        for l in range(len(model.layers)):
+        for l in range(len(model.layers)-1):
             # a = torch.diag(s[l + 1])
             # b = u[l + 1]
             # c = model.derivatives[l].T
@@ -123,21 +138,52 @@ def transform_network(model, dataloader, u, s, v):
             s_d = torch.diag(s[l])
             s_invrse = torch.where(s_d != 0, torch.pow(s_d, -1), torch.tensor([1.0], device=s[l].device))
 
-            a = torch.diag(s[l+1]).shape
-            b = u[l+1].shape
-            c = model.derivatives[l].T.shape
-            d = u[l].T.shape
-            e = s_invrse.shape
+            # a = torch.diag(s[l+1]).shape
+            # b_ = u[l+1].shape
+            # c = model.derivatives[l].T.shape
+            # d = u[l].T.shape
+            # e = s_invrse.shape
+            # ls = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ model.activations[l+1].T))
+            #    4x4             4x4                4x4        4x1
+            # m = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ (model.derivatives[l].T @ (u[l].T @ (s_invrse @ v[l].T)))))
+            #    4x4           4x4               4x4             4x5                5x5          5x5     5x5
+            # rs = v[l] @ (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
+            #    5x5        5x5               5x5       5x1
 
-            ls = torch.diag(s[l+1]) @ (u[l+1] @ model.activations[l+1].T)
-            m = torch.diag(s[l+1]) @ (u[l+1] @ (model.derivatives[l].T @ (u[l].T @ s_invrse))) # TODO bug here since adding bias
-            rs = torch.diag(s[l]) @ (u[l] @ model.activations[l].T)
+            ls = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ model.activations[l+1].T))
+            m = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ (model.derivatives[l].permute(0,2,1) @ (u[l].T @ (s_invrse @ v[l].T)))))
+            rs = v[l] @ (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
+
             edges.setdefault(l, 0)
-            value = ls * m * rs.T
+            value = torch.zeros_like(m[0])
+            for i in range(len(m)):
+                a = ls.T[i].reshape(1, ls.shape[0]).T
+                b = m[i]
+                c = rs.T[i].reshape(1, rs.shape[0])
+                value += a * b * c
+            # value = ls * m * rs.T if not batched
+            #      4x1 * 4x5  * 1x5
+            #     4x16 * 16x4x5 * 16x5
             edges[l] += value
 
+        l += 1
+        s_d = torch.diag(s[l])
+        s_invrse = torch.where(s_d != 0, torch.pow(s_d, -1), torch.tensor([1.0], device=s[l].device))
+        ls = (torch.diag(s[l + 1]) @ (u[l + 1] @ model.activations[l + 1].T))
+        m = (torch.diag(s[l + 1]) @ (u[l + 1] @ (model.derivatives[l].permute(0,2,1) @ (u[l].T @ s_invrse))))
+        rs = (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
+        edges.setdefault(l, 0)
+        value = torch.zeros_like(m[0])
+        for i in range(len(ls)):
+            a = ls.T[i].reshape(1, ls.shape[0]).T
+            b = m[i]
+            c = rs.T[i].reshape(1, rs.shape[0])
+            value += a * b * c
+        # value = ls * m * rs.T  if not batched
+        edges[l] += value
+
     for k,v in edges.items():
-        edges[k] = edges[k] / (b + 1)
+        edges[k] = edges[k] / DATA_SIZE   # TODO change b
 
     remove_hooks(model)
     return edges
@@ -181,7 +227,30 @@ if __name__ == '__main__':
     x = torch.ones((1, 4), requires_grad=True)
     y = torch.tensor([42])
     data = [(x,y)]
-    main(data)
+    batch_size = 16
+    loss_fc = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD
+    lr = .1
+    N = [784, 256, 64, 32, 10]
+    epochs = 100
+    regularization = 0
+
+    train_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=True,
+                                                              transform=transforms.Compose([transforms.ToTensor(),
+                                                                                            transforms.Normalize(
+                                                                                                (0.1307,),
+                                                                                                (0.3081,))])),
+                                               batch_size=batch_size,
+                                               shuffle=True)
+
+    test_loader = torch.utils.data.DataLoader(datasets.MNIST('../mnist_data', download=True, train=False,
+                                                             transform=transforms.Compose([transforms.ToTensor(),
+                                                                                           transforms.Normalize(
+                                                                                               (0.1307,), (0.3081,))])),
+                                              batch_size=1,
+                                              shuffle=True)
+
+    main(train_loader, test_loader, N, loss_fc, lr, optimizer, regularization, epochs)
 
 
 
