@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import einops
 
 
-device = torch.device("cpu")
+device = torch.device("cuda:0")
 
 def add_layers(model, dimensions):
     layers = []
@@ -43,20 +43,44 @@ class OrthogMLP(nn.Module):
         return x
 
     def compute_derivatives_hook(self, module, in_, out_):
+        """Hook function to compute the derivative of the activations with respect to previous layer."""
+
+        # Output of the current layer (output_of_layer_L)
         output_of_layer_L = out_
+
+        # Mask for the ReLU activation. Sets any value >0 to 1 and <=0 to 1
         mask = (output_of_layer_L > 0).float()
-        # mask = torch.cat((torch.tensor([1.0]).reshape(1,1), mask), dim=1) # if not using batches
+
+        # Array of ones for bias connections. Added to mask separately since bias is always 1
         ones = torch.ones(output_of_layer_L.shape[0], 1).to(device)
+
+        # Concatenation of the ones and mask
         mask = torch.cat((ones, mask), dim=1)
+
+        # Weights between the current layer and the next layer (weights_L_Lplus1)
         weights_L_Lplus1 = module.weight
+
+        # Bias between the current layer and the next layer (bias_L_Lplus1)
         bias_L_Lplus1 = module.bias
-        all_edges = torch.cat((bias_L_Lplus1.unsqueeze(dim=1), weights_L_Lplus1), dim=1)
-        all_edges = torch.cat((torch.zeros(1,all_edges.shape[1]).to(device), all_edges), dim=0)
-        all_edges[0][0] = 1
-        # masked_weights = mask * all_edges.T # if not using batches
-        masked_weights = torch.einsum("ij,jk->ikj", mask, all_edges)
+
+        # Concatenation of the bias for layer L and weights arrays
+        connections = torch.cat((bias_L_Lplus1.unsqueeze(dim=1), weights_L_Lplus1), dim=1)
+
+        # Zero padding to the top of the connections array. Represents connections to the bias in layer L+1
+        connections = torch.cat((torch.zeros(1, connections.shape[1]).to(device), connections), dim=0)
+
+        # Setting connection of the bias in L to the bias in L+1 to 1
+        connections[0][0] = 1
+
+        # Masking the weights. Corresponds to computing derivatives since df of relu is the weight value times a mask
+        masked_weights = torch.einsum("ij,jk->ijk", mask, connections)
+
+        # Appending the masked weights to the derivatives list
         self.derivatives.append(masked_weights)
-        del output_of_layer_L, mask, weights_L_Lplus1, bias_L_Lplus1, all_edges, masked_weights
+
+        # Deletion of the temporary variables to free up memory
+        del output_of_layer_L, mask, weights_L_Lplus1, bias_L_Lplus1, connections, masked_weights
+
         return out_
 
     def grab_activations_hook(self, module, in_, out_):
