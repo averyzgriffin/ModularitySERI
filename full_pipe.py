@@ -25,6 +25,10 @@ def main(train, test, N, loss_fc, lr, opt, regularization, epochs):
     # Lam = eigenvalues, S = Inverse squareroot eigenvalues, U = eigenvectors
     lam, S, U = eigensolve(gram, object="gram")
 
+    func_derivatives = compute_derivatives(network, train)
+
+    # transform_derivatives(func_derivatives)
+
     M = compute_M(network, gram, train)
 
     # D = eigenvalues, Dinvrs = Inverse squareroot eigenvalues, V = eigenvectors
@@ -124,6 +128,43 @@ def eigensolve(matrices: dict, object):
         # Eigenvectors are NOT abs()
         eigenvectors[name] = eigvec.real
     return eigenvalues, norm_eigenvalues, eigenvectors
+
+
+def compute_derivatives(model, dataloader):
+    func_derivatives = {}
+
+    # Add hooks that will trigger when a sample x is passed through the model
+    add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
+
+    with torch.no_grad():
+        # Iterate through the data
+        for b, (x, label) in enumerate(dataloader):
+
+            # Reset the derivatives before each pass
+            model.derivatives = []
+            print("M Computatation # samples processed ", b*len(x))
+
+            # Pass a batch through the model to trigger hooks
+            pred = model(x.reshape(len(x), -1).to(device))
+
+            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
+            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
+            model.derivatives[-1] = model.derivatives[-1][:,1:,:]
+
+            #
+            for n, df in enumerate(model.derivatives):
+                func_derivatives.setdefault(n, torch.tensor([]).to(device))
+                func_derivatives[n] = torch.cat((func_derivatives[n], df), dim=0)
+
+            del x, label, model.derivatives, pred, n, df
+
+    # Normalize each df matrix by the number of samples |x|
+    for k,v in func_derivatives.items():
+        func_derivatives[k] = func_derivatives[k] / DATA_SIZE
+
+    # Remove the hooks
+    remove_hooks(model)
+    return func_derivatives
 
 
 def compute_M(model, grams, dataloader):
