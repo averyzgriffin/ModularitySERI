@@ -13,7 +13,7 @@ def main(p, num_layers, d_model, num_heads, frac_train, name, path):
     weight_decay = 1.0
 
     fn_name = 'add'  # ['add', 'subtract', 'x2xyy2','rand']
-    num_epochs = 15000
+    num_epochs = 30000
     save_models = True
     save_every = 100
     stopping_thresh = -1
@@ -35,7 +35,6 @@ def main(p, num_layers, d_model, num_heads, frac_train, name, path):
 
     train_model = True
     train, test = gen_train_test(frac_train, p, seed)
-    print(len(train), len(test))
 
     # Creates an array of Boolean indices according to whether each data point is in
     # train or test
@@ -62,12 +61,11 @@ def main(p, num_layers, d_model, num_heads, frac_train, name, path):
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.98))
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda step: min(step / 10, 1))
         # run_name = f"grok_{int(time.time())}"
-        print(f'Run name {name}')
         if save_models:
             # save_path = f"{root}/{run_name}"
             # os.makedirs(save_path, exist_ok=True)
             save_dict = {'model': model.state_dict(), 'train_data': train, 'test_data': test}
-            torch.save(save_dict, f"{path}/init.pth")
+            torch.save(save_dict, f"{path}/{name}_init.pth")
         train_losses = []
         test_losses = []
         for epoch in range(num_epochs):
@@ -94,7 +92,8 @@ def main(p, num_layers, d_model, num_heads, frac_train, name, path):
                     'test_loss': test_loss,
                     'epoch': epoch,
                 }
-                torch.save(save_dict, f"{path}/{name}_{epoch}.pth")
+                torch.save(save_dict, f"{path}/{epoch}.pth")
+# r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\modular_addition\modular_addition_blocks1_d128_heads4_p113_trainsplit4\modular_addition_blocks1_d128_heads4_p113_trainsplit4_trial000"
         save_dict = {
             'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
@@ -105,7 +104,7 @@ def main(p, num_layers, d_model, num_heads, frac_train, name, path):
             'test_losses': test_losses,
             'epoch': epoch,
         }
-        torch.save(save_dict, f"{path}/{name}_final.pth")
+        torch.save(save_dict, f"{path}/final.pth")
         # lines([train_losses, test_losses], labels=['train', 'test'], log_y=True)
 
 
@@ -142,12 +141,12 @@ def full_loss(model, data, fn):
 
 
 def create_model_name(task_name, p, num_layers, d_model, num_heads, frac_train):
-    name = f"{task_name}_blocks{num_layers}_d{d_model}_heads{num_heads}_p{p}_trainsplit{frac_train}"
+    name = f"{task_name}_blocks{num_layers}_d{d_model}_heads{num_heads}_p{p}_trainsplit{str(frac_train).split('.')[-1]}"
     return name
 
 
 if __name__ == "__main__":
-    train_split = [0.4, 0.3]
+    train_split = [0.25]
     num_trials = 3
     task = "modular_addition"
     blocks = 1
@@ -158,10 +157,10 @@ if __name__ == "__main__":
     for i in range(num_trials):
         for s in range(len(train_split)):
             model_name = create_model_name(task, p, blocks, d, heads, train_split[s])
-            save_path = f"saved_models/{task}/{model_name}/{model_name}_trial{str(i).zfill(3)}"
+            save_path = f"saved_models/{task}/{model_name}/trial{str(i).zfill(3)}"
             os.makedirs(save_path, exist_ok=True)
+            print(f"{model_name} Trial {i}")
             model_name = model_name + f"_trial{str(i).zfill(3)}"
-
             main(p, blocks, d, heads, train_split[s], model_name, save_path)
 
 
