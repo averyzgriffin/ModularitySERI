@@ -4,36 +4,43 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from hooks import newedge_hook
+from graphing import MNISTGraph, plot_modularity_plotly
 from models import OrthogMLP
 from train import Trainer
 
 
 
-device = torch.device("cpu")
+device = torch.device("cuda:0")
 DATA_SIZE = 60000
 
 
 def main(train, test, N, loss_fc, lr, opt, regularization, epochs):
-    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\sai\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000_epoch099.pt"
+    path = r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\mnist\mnist_784x256x64x32x10_SGD_LR1_reg0\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000\mnist_784x256x64x32x10_SGD_LR1_reg0_trial000_epoch099.pt"
 
     # network = build_model()
-    # network = train_model(train, test, N, loss_fc, lr, opt, regularization, epochs)
     network = load_model(path)
 
     gram = compute_gram(network, train)
 
-    lam, S, U = eigensolve(gram)
+    # Lam = eigenvalues, S = Inverse squareroot eigenvalues, U = eigenvectors
+    lam, S, U = eigensolve(gram, object="gram")
 
     M = compute_M(network, gram, train)
 
-    D, Dinvrs, V = eigensolve(M)
+    # D = eigenvalues, Dinvrs = Inverse squareroot eigenvalues, V = eigenvectors
+    D, Dinvrs, V = eigensolve(M, object="M")
 
     new_edges = transform_network(network, train, U, S, V)
 
-    redefined_model = change_edges(network, new_edges)
+    # network = {1: torch.randn((256, 784)), 2: torch.randn((64, 256)),
+    #            3: torch.randn((32, 64)), 4: torch.randn((10, 32))}
+    # graph1 = MNISTGraph(network, absval=False)
+    # Q, clusters = graph1.get_model_modularity(method="louvain")
+    # plot_modularity_plotly(graph1, clusters)
 
-    # analyze(redefined_model)
+    # each eigenvalue (D) divided by 2 is equal to the corresponding column sum in the edge matrix (row = to (L+1), column = from (L))
+    # eigenvalues which are very negative should be flagged
+    # rows of edges should sum to 1 or 0
 
 
 def build_model():
@@ -60,163 +67,197 @@ def load_model(path):
 
 
 def compute_gram(model, dataloader):
-    """ Orthogonalize the input model using the specified method """
+    """ Compute the gram matrix for each layer of a network """
+
+    # Adding hooks that will trigger when a sample x is passed through the model
     add_hooks(model, [model.grab_activations_hook])
+
+    # Iterate through data
     for b, (x, label) in enumerate(dataloader):
+        # Send x into model to trigger hooks
         model(x.reshape(len(x), -1).to(device))
+
+        # Grab the activations that the hook stored
         activations = model.activations
+
+        # If this is the first pass, instantiate an empty gram tensor in the dictionary to avoid key errors
         if b == 0:
             grams = {i: torch.zeros((act.shape[1], act.shape[1])).to(device) for i, act in enumerate(activations)}
+
+        # Compute the gram matrix for each layer i, using the activations, for a single batch of data
         for i, act in enumerate(activations):
+
+            # Gram matrix is defined as the inner product of the activations with its own transpose
             grams[i] += torch.matmul(act.transpose(0, 1), act)
 
+    # Normalize each gram matrix by the number of samples |x|
     for k,v in grams.items():
         grams[k] = grams[k] / DATA_SIZE
 
+    # Remove the hooks
     remove_hooks(model)
     return grams
 
 
-def eigensolve(matrices: dict):
-    """ Calculate the change of basis matrices for the orthogonalized network """
+def eigensolve(matrices: dict, object):
+    """ Calculate the eigendata for a given matrix. """
     eigenvalues, norm_eigenvalues, eigenvectors = {}, {}, {}
-    for name, gram in matrices.items():
-        lam, U = torch.linalg.eig(gram)
-        eigenvalues[name] = torch.abs(lam)
-        norm_eigenvalues[name] = torch.where(lam != 0, torch.pow(torch.abs(lam), -0.5), torch.tensor([0.0], device=lam.device))
-        eigenvectors[name] = torch.abs(U)
+
+    # Iterate through each matrix in matrices, one for each layer in the network
+    for name, matrix in matrices.items():
+
+        # Compute eigenvalues and eigenvectors
+        lam, eigvec = torch.linalg.eig(matrix)
+
+        # If this is the gram matrix, we take the absolute value of the eigenvalues
+        if object == "gram":
+            eigenvalues[name] = torch.abs(lam).real
+
+        # If this is the M matrix, we don't take the absolute value
+        elif object == "M":
+            eigenvalues[name] = lam.real
+
+        # Compute the inverse-squareroot of the eigenvalues. Each value is abs() first.
+        # For any value that is close to 0, we just set it to zero to avoid infinities
+        norm_eigenvalues[name] = torch.where(torch.abs(lam.real) >= 0.0001, torch.pow(torch.abs(lam), -0.5).real, torch.tensor([0.0], device=lam.device))
+
+        # Eigenvectors are NOT abs()
+        eigenvectors[name] = eigvec.real
     return eigenvalues, norm_eigenvalues, eigenvectors
 
 
 def compute_M(model, grams, dataloader):
     M = {}
 
+    # Add hooks that will trigger when a sample x is passed through the model
     add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
 
     with torch.no_grad():
+        # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
+            # Reset the derivatives before each pass
             model.derivatives = []
             print("M Computatation # samples processed ", b*len(x))
+
+            # Pass a batch through the model to trigger hooks
             pred = model(x.reshape(len(x), -1).to(device))
 
-        # Remove the connection to the phantom bias in the last layer todo this won't work if there is 1 output
-        # model.derivatives[-1] = model.derivatives[-1][:,1].reshape(model.derivatives[-1].shape[0], 1)
-        model.derivatives[-1] = model.derivatives[-1][:,:,1:]
-        # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := L, m:= L+1;
+            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
+            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
+            model.derivatives[-1] = model.derivatives[-1][:,1:,:]
 
+            # Compute the M matrix for each set of derivatives; corresponds to each layer except last one
             for n, df in enumerate(model.derivatives):
+                # Grab the gram matrix for current layer
                 gram = grams[n]
+
+                # Set M value in dictionary to 0 to avoid key error
                 M.setdefault(n, 0)
-                # M[n] += df @ df.T @ gram @ gram.T + gram @ gram.T @ df @ df.T
-                #       4x3   3x4   4x4     4x4     4x4     4x4     4x3   3x4
-                # if batches:
-                # M[n] += torch.sum( (df @ (df.permute(0,2,1) @ (gram @ gram.T))) + (gram @ (gram.T @ (df @ df.permute(0,2,1)))), dim=0)
-                M[n] += torch.sum((torch.matmul(df, torch.matmul(df.permute(0, 2, 1), torch.matmul(gram, gram.T))) + torch.matmul(gram, torch.matmul(gram.T, torch.matmul(df, df.permute(0, 2, 1))))), dim=0)
+
+                # Compute M
+                # Equivalent to M[n] += df.T @ df @ gram @ gram.T + gram @ gram.T @ df.T @ df
+                M[n] += torch.sum( (torch.matmul(df.permute(0, 2, 1), torch.matmul(df, gram))) +
+                                   (torch.matmul(gram, torch.matmul(df.permute(0, 2, 1), df))), dim=0)
 
             del x, label, model.derivatives, pred, n, df, gram
-            # tracker.print_diff()
-            # print("# items ", len(gc.get_objects()))
-            # gc.collect()
-            # print("# items after collection", len(gc.get_objects()))
 
+    # Normalize each M matrix by the number of samples |x|
     for k,v in M.items():
-        M[k] = M[k] / DATA_SIZE  #todo change this to be # samples instead of batches
+        M[k] = M[k] / DATA_SIZE
 
+    # Remove the hooks
     remove_hooks(model)
     return M
 
 
 def transform_network(model, dataloader, u, s, v):
-    """ Calculate the new_edges of the model using the specified method """
+    """ Calculate the new_edges of the model using the transformation matrices"""
     edges = {}
+
+    # Add hooks that will trigger when a sample x is passed through the model
     add_hooks(model, [model.compute_derivatives_hook, model.grab_activations_hook])
 
-    for b, (x, label) in enumerate(dataloader):
-        model.derivatives = []
-        model(x.reshape(len(x), -1).to(device))
-        # model.derivatives[-1] = model.derivatives[-1][:,1].reshape(model.derivatives[-1].shape[0], 1)
-        model.derivatives[-1] = model.derivatives[-1][:,:,1:]
+    with torch.no_grad():
+        # Iterate through the data
+        for b, (x, label) in enumerate(dataloader):
+            print("Edge Comp # samples processed ", b*len(x))
 
-        for l in range(len(model.layers)-1):
-            # a = torch.diag(s[l + 1])
-            # b = u[l + 1]
-            # c = model.derivatives[l].T
-            # d = u[l].T
-            # e = torch.pow(torch.diag(s[l]), -1)
+            # Reset the derivatives before each pass
+            model.derivatives = []
 
+            # Pass a batch through the model to trigger hooks
+            pred = model(x.reshape(len(x), -1).to(device))
+
+            # Remove derivative connections to the nonexistent bias in the last layer
+            model.derivatives[-1] = model.derivatives[-1][:,1:,:]
+
+            # Compute the new edges for each layer in the network. Do not include last layer in loop since that
+            # computation is slightly different (doesn't include v)
+            for l in range(len(model.layers)-1):
+
+                # Convert the vector of eigenvalues s to a diagonal matrix, so we can do matrix multiplication
+                s_d = torch.diag(s[l])
+
+                # Compute the inverse of s. Where values = 0, we set value to 1 to avoid divide by zeros.
+                s_invrse = torch.where(s_d != 0, torch.pow(s_d, -1), torch.tensor([1.0], device=s[l].device))
+
+                # Compute the transformation of the L+1
+                ls = torch.matmul(v[l + 1], torch.matmul(torch.diag(s[l + 1]), torch.matmul(u[l + 1], model.activations[l+1].T)))
+
+                # Compute the transformation of the derivatives of L+1 to L
+                m = torch.matmul(v[l+1], torch.matmul(torch.diag(s[l+1]), torch.matmul(u[l+1], torch.matmul(model.derivatives[l], torch.matmul(u[l].T, torch.matmul(s_invrse, v[l].T))))))
+
+                # Compute the transformation of the L
+                rs = torch.matmul(v[l], torch.matmul(torch.diag(s[l]), torch.matmul(u[l], model.activations[l].T)))
+
+                # Set edges value in dictionary to 0 to avoid key error
+                edges.setdefault(l, 0)
+
+                value = torch.zeros_like(m[0])
+
+                # For-loop for computing the edges for a particular layer and (summed across) a particular batch
+                # Iterate through each sample in the batch, one at a time
+                for i in range(len(m)):
+                    # Reshape ls, m, and rs to be of the right shape after indexing into a specific sample of the batch
+                    a = ls.T[i].reshape(1, ls.shape[0]).T
+                    b = m[i]
+                    c = rs.T[i].reshape(1, rs.shape[0])
+
+                    # Compute the resulting value by scalar multiplying ls, m, and rs together. Add to value
+                    value += a * b * c
+
+                # Add the summed-across-each-sample-in-batch value to the dictionary
+                edges[l] += value
+
+                del value, a, b, c, ls, m, rs, s_d, s_invrse
+
+            # Repeat all computations for the last layer. Only difference is that v is excluded.
+            l += 1
             s_d = torch.diag(s[l])
             s_invrse = torch.where(s_d != 0, torch.pow(s_d, -1), torch.tensor([1.0], device=s[l].device))
 
-            # a = torch.diag(s[l+1]).shape
-            # b_ = u[l+1].shape
-            # c = model.derivatives[l].T.shape
-            # d = u[l].T.shape
-            # e = s_invrse.shape
-            # ls = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ model.activations[l+1].T))
-            #    4x4             4x4                4x4        4x1
-            # m = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ (model.derivatives[l].T @ (u[l].T @ (s_invrse @ v[l].T)))))
-            #    4x4           4x4               4x4             4x5                5x5          5x5     5x5
-            # rs = v[l] @ (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
-            #    5x5        5x5               5x5       5x1
-
-            ls = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ model.activations[l+1].T))
-            m = v[l+1] @ (torch.diag(s[l+1]) @ (u[l+1] @ (model.derivatives[l].permute(0,2,1) @ (u[l].T @ (s_invrse @ v[l].T)))))
-            rs = v[l] @ (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
+            ls = torch.matmul(torch.diag(s[l + 1]), torch.matmul(u[l + 1], model.activations[l + 1].T))
+            m = torch.matmul(torch.diag(s[l + 1]), torch.matmul(u[l + 1],torch.matmul(model.derivatives[l],torch.matmul(u[l].T, s_invrse))))
+            rs = torch.matmul(torch.diag(s[l]), torch.matmul(u[l], model.activations[l].T))
 
             edges.setdefault(l, 0)
             value = torch.zeros_like(m[0])
-            for i in range(len(m)):
+            for i in range(len(ls)):
                 a = ls.T[i].reshape(1, ls.shape[0]).T
                 b = m[i]
                 c = rs.T[i].reshape(1, rs.shape[0])
                 value += a * b * c
-            # value = ls * m * rs.T if not batched
-            #      4x1 * 4x5  * 1x5
-            #     4x16 * 16x4x5 * 16x5
             edges[l] += value
 
-        l += 1
-        s_d = torch.diag(s[l])
-        s_invrse = torch.where(s_d != 0, torch.pow(s_d, -1), torch.tensor([1.0], device=s[l].device))
-        ls = (torch.diag(s[l + 1]) @ (u[l + 1] @ model.activations[l + 1].T))
-        m = (torch.diag(s[l + 1]) @ (u[l + 1] @ (model.derivatives[l].permute(0,2,1) @ (u[l].T @ s_invrse))))
-        rs = (torch.diag(s[l]) @ (u[l] @ model.activations[l].T))
-        edges.setdefault(l, 0)
-        value = torch.zeros_like(m[0])
-        for i in range(len(ls)):
-            a = ls.T[i].reshape(1, ls.shape[0]).T
-            b = m[i]
-            c = rs.T[i].reshape(1, rs.shape[0])
-            value += a * b * c
-        # value = ls * m * rs.T  if not batched
-        edges[l] += value
+            del value, a, b, c, ls, m, rs, s_d, s_invrse, x, label, pred
 
+    # Normalize each edge value by the number of samples |x|
     for k,v in edges.items():
-        edges[k] = edges[k] / DATA_SIZE   # TODO change b
+        edges[k] = edges[k] / DATA_SIZE
 
+    # Remove the hooks
     remove_hooks(model)
     return edges
-
-
-def change_edges(model, new_edges):
-    """ Change the edges of the transformed model using the calculated edges """
-    return model
-
-
-def analyze(model):
-    """ Analyze the redefined model and perform any necessary operations """
-    pass
-
-
-def intermediate_inspectoin(model, change_of_basis):
-    """ Change the basis of the trained model using the change of basis matrix """
-    # rotated_model = copy.deepcopy(model)
-    for l in range(len(model.layers)):
-        w = change_of_basis[l].T @ model.layers[l].weight @ change_of_basis[l]
-        # model.layers[l].weight = nn.Parameter(torch.matmul(change_of_basis[l],
-        #                                                    torch.matmul(model.layers[l].weight, change_of_basis[l].T)),
-        #                                       requires_grad=True)
-    return model
 
 
 def add_hooks(model, hookfuncs: list):
@@ -233,10 +274,10 @@ def remove_hooks(model):
 
 
 if __name__ == '__main__':
-    x = torch.ones((1, 4), requires_grad=True)
+    x = torch.ones((1, 1, 4), requires_grad=True)
     y = torch.tensor([42])
     data = [(x,y)]
-    batch_size = 16
+    batch_size = 400
     loss_fc = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD
     lr = .1
