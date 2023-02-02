@@ -33,7 +33,7 @@ def create_navigation_html(root_dir, save_dir):
     html += """        </nav>
     </header>
      <main>
-        <h1>Welcome to My HTML Pages</h1>
+        <h1>Eigenvalues of Gram Matrix</h1>
         <div id="accordion">
 """
     for section, pages in sections.items():
