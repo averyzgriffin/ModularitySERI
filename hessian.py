@@ -2,7 +2,6 @@ import torch
 from torch.nn.utils import _stateless
 from matplotlib import pyplot as plt
 import numpy as np
-from scipy.optimize import minimize
 
 from manual_broadness import BroadnessMeasurer
 
@@ -104,26 +103,6 @@ def compute_hessian(model, dataloader, loss_func, device):
     eigenvalues = eigenvalues.float()
 
     return full_hessian, eigenvectors, eigenvalues
-
-
-def newton_approximate(model, loss_fn, dataloader, device):
-    all_batches_x, all_batches_labels = model.get_x_y_batches(dataloader, device)
-
-    def closure(x, y):
-        model.zero_grad()
-        output = model(x)
-        loss = loss_fn(output, y)
-        loss.backward()
-        return loss
-
-    # Optimize using BFGS
-    # params = list(model.parameters())
-    # res = minimize(closure, params, method='BFGS')
-
-    # Optimize using L-BFGS-B
-    params = list(model.parameters())
-    res = minimize(closure, params, method='L-BFGS-B')
-    hessian = res.x
 
 
 def manual_approximation(model, loss_fc, dataloader, device):
