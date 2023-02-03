@@ -1,11 +1,12 @@
 import copy
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from graphing import MNISTGraph, plot_modularity
-from models import OrthogMLP
+from datasets import ModularArithmeticDataset
+from models import OrthogMLP, Transformer
 from train import Trainer
 
 
@@ -13,9 +14,7 @@ device = torch.device("cuda:0")
 DATA_SIZE = 1234
 
 
-def main(network, train , labels):
-
-    network = load_model(path)
+def main(network, train):
 
     gram = compute_gram(network, train)
 
@@ -61,7 +60,7 @@ def load_models(model_dir, device):
     act_type = 'ReLU'
     use_ln = False
 
-    run_saved_data = torch.load(path)
+    run_saved_data = torch.load(model_dir)
     model = Transformer(num_layers=num_layers, d_vocab=d_vocab, d_model=d_model, d_mlp=d_mlp, d_head=d_head,
                         num_heads=num_heads, n_ctx=n_ctx, act_type=act_type, use_cache=False, use_ln=use_ln)
     model.to(device)
@@ -224,6 +223,15 @@ def transform_network2(model, dataloader, u, s, s_invrs, v):
     return new_edges
 
 
+def transform_derivatives(df, n, u, s, s_invsr):
+    new_ds = []
+    for i,d in enumerate(df):
+        new_d = torch.matmul(torch.diag(s[n+1]), torch.matmul(u[n+1].T, torch.matmul(d, torch.matmul(u[n], torch.diag(s_invsr[n])))))
+        new_ds.append(new_d)
+    new_ds = torch.stack(new_ds)
+    return new_ds
+
+
 def add_hooks(model, hookfuncs: list):
     model.handles = []
     for module in model.layers:
@@ -238,20 +246,16 @@ def remove_hooks(model):
 
 
 if __name__ == '__main__':
-    p = 113
-
-    fn_name = 'add'
-    random_answers = np.random.randint(low=0, high=p, size=(p, p))
-    fns_dict = {'add': lambda x, y: (x + y) % p, 'subtract': lambda x, y: (x - y) % p,
-                'x2xyy2': lambda x, y: (x ** 2 + x * y + y ** 2) % p, 'rand': lambda x, y: random_answers[x][y]}
-    fn = fns_dict[fn_name]
-    all_data = torch.tensor([(i, j, p) for i in range(p) for j in range(p)]).to('cuda')
-    all_labels = torch.tensor([fn(i, j) for i, j, _ in all_data]).to('cuda')
-
-    path = r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\grokking\grok_1674663919"
+    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\modular_addition\modular_addition_blocks1_d128_heads4_p113_trainsplit3\trial000\final.pth"
     models = load_models(path, device)
 
-    main(models, all_data, all_labels)
+    p = 113
+    fn_name = 'add'
+    dataset = ModularArithmeticDataset(p, fn_name, device)
+
+    dataloader = DataLoader(dataset, batch_size=1000, shuffle=True)
+
+    main(models, dataloader)
 
 
 

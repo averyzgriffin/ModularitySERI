@@ -5,6 +5,32 @@ import torch
 from torch.utils.data import Dataset
 
 
+class ModularArithmeticDataset(torch.utils.data.Dataset):
+    """
+    Dataset used in Neel Nanda's modular arithmetic work.
+    """
+    def __init__(self, p, fn_name, device):
+        self.p = p
+        self.fn_name = fn_name
+        self.device = device
+
+        self.fns_dict = {'add': lambda x, y: (x + y) % self.p, 'subtract': lambda x, y: (x - y) % self.p,
+                         'x2xyy2': lambda x, y: (x ** 2 + x * y + y ** 2) % self.p}
+        self.fn = self.fns_dict[fn_name]
+        self.x, self.labels = self.construct_dataset()
+
+    def __getitem__(self, index):
+        return self.x[index], self.labels[index]
+
+    def __len__(self):
+        return len(self.x)
+
+    def construct_dataset(self):
+        x = torch.tensor([(i, j, self.p) for i in range(self.p) for j in range(self.p)]).to(self.device)
+        y = torch.tensor([self.fn(i, j) for i, j, _ in x]).to(self.device)
+        return x, y
+
+
 class RetinaDataset(Dataset):
     """
     This dataset provides a random one-hot encoded sample
