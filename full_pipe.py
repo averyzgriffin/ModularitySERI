@@ -4,7 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from graphing import MNISTGraph, plot_modularity_plotly
+from graphing import MNISTGraph, plot_modularity
 from models import OrthogMLP
 from train import Trainer
 
@@ -22,29 +22,24 @@ def main(train, test, N, loss_fc, lr, opt, regularization, epochs):
 
     gram = compute_gram(network, train)
 
-    # Lam = eigenvalues, S = Inverse squareroot eigenvalues, U = eigenvectors
-    lam, S, U = eigensolve(gram, object="gram")
+    # Lam = eigenvalues, S = negative squareroot of lam, U = eigenvectors, Spseudo = pseudo inverse of S
+    lam, S, U, Spseudo = eigensolve(gram, object="gram", threshold=0.0001)
 
-    func_derivatives = compute_derivatives(network, train)
+    M = compute_M(network, gram, train, U, S, Spseudo)
 
-    # transform_derivatives(func_derivatives)
+    # Eigendata for the M matrix
+    D, Dnorm, V, Dpsuedo = eigensolve(M, object="M", threshold=0.0001)
 
-    M = compute_M(network, gram, train)
-
-    # D = eigenvalues, Dinvrs = Inverse squareroot eigenvalues, V = eigenvectors
-    D, Dinvrs, V = eigensolve(M, object="M")
-
-    new_edges = transform_network(network, train, U, S, V)
+    # Transforming the edges to new basis
+    new_edges = transform_network2(network, train, U, S, Spseudo, V)
 
     # network = {1: torch.randn((256, 784)), 2: torch.randn((64, 256)),
     #            3: torch.randn((32, 64)), 4: torch.randn((10, 32))}
-    # graph1 = MNISTGraph(network, absval=False)
-    # Q, clusters = graph1.get_model_modularity(method="louvain")
-    # plot_modularity_plotly(graph1, clusters)
 
-    # each eigenvalue (D) divided by 2 is equal to the corresponding column sum in the edge matrix (row = to (L+1), column = from (L))
-    # eigenvalues which are very negative should be flagged
-    # rows of edges should sum to 1 or 0
+    graph1 = MNISTGraph(new_edges, absval=False)
+    Q, clusters = graph1.get_model_modularity(method="louvain")
+    print("New Q: ", Q)
+    plot_modularity(graph1, clusters)
 
 
 def build_model():
@@ -103,14 +98,14 @@ def compute_gram(model, dataloader):
     return grams
 
 
-def eigensolve(matrices: dict, object):
+def eigensolve(matrices: dict, object, threshold):
     """ Calculate the eigendata for a given matrix. """
-    eigenvalues, norm_eigenvalues, eigenvectors = {}, {}, {}
+    eigenvalues, s, eigenvectors, psuedo_inverse_s = {}, {}, {}, {}
 
     # Iterate through each matrix in matrices, one for each layer in the network
     for name, matrix in matrices.items():
 
-        # Compute eigenvalues and eigenvectors
+        # Compute eigenvalues and eigenvectors (columns are the eigenvectors)
         lam, eigvec = torch.linalg.eig(matrix)
 
         # If this is the gram matrix, we take the absolute value of the eigenvalues
@@ -123,52 +118,19 @@ def eigensolve(matrices: dict, object):
 
         # Compute the inverse-squareroot of the eigenvalues. Each value is abs() first.
         # For any value that is close to 0, we just set it to zero to avoid infinities
-        norm_eigenvalues[name] = torch.where(torch.abs(lam.real) >= 0.0001, torch.pow(torch.abs(lam), -0.5).real, torch.tensor([0.0], device=lam.device))
+        s[name] = torch.where(torch.abs(lam.real) >= threshold, torch.pow(torch.abs(lam), -0.5).real, torch.tensor([0.0], device=lam.device))
+
+        # Words
+        psuedo_inverse_s[name] = torch.where(torch.abs(lam.real) >= threshold, torch.pow(torch.abs(lam), 0.5).real, torch.tensor([0.0], device=lam.device))
 
         # Eigenvectors are NOT abs()
         eigenvectors[name] = eigvec.real
-    return eigenvalues, norm_eigenvalues, eigenvectors
+    return eigenvalues, s, eigenvectors, psuedo_inverse_s
 
 
-def compute_derivatives(model, dataloader):
-    func_derivatives = {}
-
-    # Add hooks that will trigger when a sample x is passed through the model
-    add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
-
-    with torch.no_grad():
-        # Iterate through the data
-        for b, (x, label) in enumerate(dataloader):
-
-            # Reset the derivatives before each pass
-            model.derivatives = []
-            print("M Computatation # samples processed ", b*len(x))
-
-            # Pass a batch through the model to trigger hooks
-            pred = model(x.reshape(len(x), -1).to(device))
-
-            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
-            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
-            model.derivatives[-1] = model.derivatives[-1][:,1:,:]
-
-            #
-            for n, df in enumerate(model.derivatives):
-                func_derivatives.setdefault(n, torch.tensor([]).to(device))
-                func_derivatives[n] = torch.cat((func_derivatives[n], df), dim=0)
-
-            del x, label, model.derivatives, pred, n, df
-
-    # Normalize each df matrix by the number of samples |x|
-    for k,v in func_derivatives.items():
-        func_derivatives[k] = func_derivatives[k] / DATA_SIZE
-
-    # Remove the hooks
-    remove_hooks(model)
-    return func_derivatives
-
-
-def compute_M(model, grams, dataloader):
+def compute_M(model, grams, dataloader, u, s, s_invrs):
     M = {}
+    func_derivatives = {}
 
     # Add hooks that will trigger when a sample x is passed through the model
     add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
@@ -189,6 +151,10 @@ def compute_M(model, grams, dataloader):
 
             # Compute the M matrix for each set of derivatives; corresponds to each layer except last one
             for n, df in enumerate(model.derivatives):
+
+                # Transform the functional derivatives
+                transformed_df = transform_derivatives(df, n, u, s, s_invrs)
+
                 # Grab the gram matrix for current layer
                 gram = grams[n]
 
@@ -197,8 +163,8 @@ def compute_M(model, grams, dataloader):
 
                 # Compute M
                 # Equivalent to M[n] += df.T @ df @ gram @ gram.T + gram @ gram.T @ df.T @ df
-                M[n] += torch.sum( (torch.matmul(df.permute(0, 2, 1), torch.matmul(df, gram))) +
-                                   (torch.matmul(gram, torch.matmul(df.permute(0, 2, 1), df))), dim=0)
+                M[n] += torch.sum( (torch.matmul(transformed_df.permute(0, 2, 1), torch.matmul(transformed_df, gram))) +
+                                   (torch.matmul(gram, torch.matmul(transformed_df.permute(0, 2, 1), transformed_df))), dim=0)
 
             del x, label, model.derivatives, pred, n, df, gram
 
@@ -209,6 +175,58 @@ def compute_M(model, grams, dataloader):
     # Remove the hooks
     remove_hooks(model)
     return M
+
+
+def transform_derivatives(df, n, u, s, s_invsr):
+    new_ds = []
+    for i,d in enumerate(df):
+        new_d = torch.matmul(torch.diag(s[n+1]), torch.matmul(u[n+1].T, torch.matmul(d, torch.matmul(u[n], torch.diag(s_invsr[n])))))
+        new_ds.append(new_d)
+    new_ds = torch.stack(new_ds)
+    return new_ds
+
+
+def transform_network2(model, dataloader, u, s, s_invrs, v):
+    new_edges = {}
+
+    # Add hooks that will trigger when a sample x is passed through the model
+    add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
+
+    with torch.no_grad():
+        # Iterate through the data
+        for b, (x, label) in enumerate(dataloader):
+            # Reset the derivatives before each pass
+            model.derivatives = []
+            print("New Edges Computatation # samples processed ", b * len(x))
+
+            # Pass a batch through the model to trigger hooks
+            pred = model(x.reshape(len(x), -1).to(device))
+
+            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
+            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
+            model.derivatives[-1] = model.derivatives[-1][:, 1:, :]
+
+            for n in range(len(model.derivatives)-1):
+                # Transform the functional derivatives
+                df = model.derivatives[n]
+                transformed_df = transform_derivatives(df, n, u, s, s_invrs)
+
+                # Set new edges value in dictionary to 0 to avoid key error
+                new_edges.setdefault(n, 0)
+
+                # Compute new edges
+                a = torch.matmul(v[n+1].T, torch.matmul(transformed_df, v[n]))
+                new_edges[n] += torch.sum(torch.pow(a, 2), axis=0)
+
+            del x, label, model.derivatives, pred, n, df, a, transformed_df
+
+    # Normalize each M matrix by the number of samples |x|
+    for k, v in new_edges.items():
+        new_edges[k] = new_edges[k] / DATA_SIZE
+
+    # Remove the hooks
+    remove_hooks(model)
+    return new_edges
 
 
 def transform_network(model, dataloader, u, s, v):
