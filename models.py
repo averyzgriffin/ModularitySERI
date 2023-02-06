@@ -318,15 +318,13 @@ class Attention(nn.Module):
         self.W_K = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
         self.W_Q = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
         self.W_V = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
-        self.W_O = nn.Parameter(torch.randn(d_model, d_head * num_heads) / np.sqrt(d_model))
         self.register_buffer('mask', torch.tril(torch.ones((n_ctx, n_ctx))))
         self.d_head = d_head
         self.hook_k = HookPoint()
         self.hook_q = HookPoint()
         self.hook_v = HookPoint()
-        self.hook_z = HookPoint()
-        self.hook_attn = HookPoint()
-        self.hook_attn_pre = HookPoint()
+        self.hook_attn_softmax = HookPoint()
+        self.hook_attn_pre_softmax = HookPoint()
 
     def forward(self, x):
         k = self.hook_k(torch.einsum('ihd,bpd->biph', self.W_K, x))
@@ -334,11 +332,25 @@ class Attention(nn.Module):
         v = self.hook_v(torch.einsum('ihd,bpd->biph', self.W_V, x))
         attn_scores_pre = torch.einsum('biph,biqh->biqp', k, q)
         attn_scores_masked = torch.tril(attn_scores_pre) - 1e10 * (1 - self.mask[:x.shape[-2], :x.shape[-2]])
-        attn_matrix = self.hook_attn(F.softmax(self.hook_attn_pre(attn_scores_masked / np.sqrt(self.d_head)), dim=-1))
+        attn_matrix = self.hook_attn_softmax(F.softmax(self.hook_attn_pre_softmax(attn_scores_masked / np.sqrt(self.d_head)), dim=-1))
         z = torch.einsum('biph,biqp->biqh', v, attn_matrix)
-        z_flat = self.hook_z(einops.rearrange(z, 'b i q h -> b q (i h)'))
-        out = torch.einsum('df,bqf->bqd', self.W_O, z_flat)
-        return out
+        # z_concat = self.hook_z(einops.rearrange(z, 'b i q h -> b q (i h)'))
+        # proj_z = torch.einsum('df,bqf->bqd', self.W_O, z_concat)
+        return z
+
+
+class PostAttention(nn.Module):
+    def __init__(self, d_model, num_heads, d_head, model):
+        super().__init__()
+        self.model = model
+        self.d_head = d_head
+        self.hook_z = HookPoint()
+        self.W_O = nn.Parameter(torch.randn(d_model, d_head * num_heads) / np.sqrt(d_model))
+
+    def forward(self, x):
+        z_concat = self.hook_z(einops.rearrange(x, 'b i q h -> b q (i h)'))
+        proj_z = torch.einsum('df,bqf->bqd', self.W_O, z_concat)
+        return proj_z
 
 
 # MLP Layers
@@ -374,6 +386,7 @@ class TransformerBlock(nn.Module):
         self.model = model
         # self.ln1 = LayerNorm(d_model, model=self.model)
         self.attn = Attention(d_model, num_heads, d_head, n_ctx, model=self.model)
+        self.post_attn = PostAttention(d_model, num_heads, d_head, model=self.model)
         # self.ln2 = LayerNorm(d_model, model=self.model)
         self.mlp = MLP(d_model, d_mlp, act_type, model=self.model)
         self.hook_post_projz = HookPoint()
@@ -383,7 +396,7 @@ class TransformerBlock(nn.Module):
         self.hook_resid_post = HookPoint()
 
     def forward(self, x):
-        x = self.hook_resid_mid(x + self.hook_post_projz(self.attn((self.hook_resid_pre(x)))))
+        x = self.hook_resid_mid(x + self.hook_post_projz(self.post_attn(self.attn((self.hook_resid_pre(x))))))
         x = self.hook_resid_post(x + self.hook_mlp_out(self.mlp((x))))
         return x
 
