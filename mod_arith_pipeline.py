@@ -48,7 +48,7 @@ def train_model(train_loader, test_loader, N, loss_fc, lr, opt, regularization, 
     return network
 
 
-def load_models(model_dir, device):
+def load_model(model_dir, device):
     p = 113
     d_model = 128
     num_layers = 1
