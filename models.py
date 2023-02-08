@@ -433,6 +433,10 @@ class Transformer(nn.Module):
         x = self.hook_unembed_post(self.unembed(x))
         return x
 
+    def derivative_hook(self, module, in_, out_):
+        # Not implemented
+        return out_
+
     def set_use_cache(self, use_cache):
         self.use_cache = use_cache
 
@@ -457,7 +461,21 @@ class Transformer(nn.Module):
             if incl_bwd:
                 hp.add_hook(save_hook_back, 'bwd')
 
+    def setup_hooks(self, hook):
+        # Not implemented
+        for hp in self.hook_points():
+            hp.add_hook(hook, "fwd")
 
+    def hook_activations(module, module_input, module_output):
+        # Not implemented
+        Transformer.cache[module.name] = module_output
+        return module_output
+
+    @staticmethod
+    def hook_functional_derivatives(module, module_input, module_output):
+        # Not implemented
+        """Compute functional derivatives cache[name] = derivatives"""
+        return module_output
 
 
 
