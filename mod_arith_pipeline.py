@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from datasets import ModularArithmeticDataset
+from hooks import grab_activations
 from models import OrthogMLP, Transformer
 from train import Trainer
 
@@ -179,7 +180,7 @@ def compute_M(model, grams, dataloader, u, s, s_invrs):
 
     # Normalize each M matrix by the number of samples |x|
     for k,v in M.items():
-        M[k] = M[k] / DATA_SIZE
+        M[k] = M[k] / len(dataloader.dataset)
 
     # Remove the hooks
     remove_hooks(model)
@@ -222,7 +223,7 @@ def transform_network2(model, dataloader, u, s, s_invrs, v):
 
     # Normalize each M matrix by the number of samples |x|
     for k, v in new_edges.items():
-        new_edges[k] = new_edges[k] / DATA_SIZE
+        new_edges[k] = new_edges[k] / len(dataloader.dataset)
 
     # Remove the hooks
     remove_hooks(model)
@@ -252,17 +253,16 @@ def remove_hooks(model):
 
 
 if __name__ == '__main__':
-    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\modular_addition\modular_addition_blocks1_d128_heads4_p113_trainsplit3\trial000\final.pth"
-    models = load_models(path, device)
+    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\default101_final.pth"
+    model = load_model(path, device)
 
     p = 113
     fn_name = 'add'
     dataset = ModularArithmeticDataset(p, fn_name, device)
 
-    dataloader = DataLoader(dataset, batch_size=1000, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=10, shuffle=True)
 
-    main(models, dataloader)
-
+    main(model, dataloader)
 
 
 
