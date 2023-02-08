@@ -72,32 +72,38 @@ def compute_gram(model, dataloader):
     """ Compute the gram matrix for each layer of a network """
 
     # Adding hooks that will trigger when a sample x is passed through the model
-    add_hooks(model, [model.grab_activations_hook])
+    # add_hooks(model, [model.grab_activations_hook]) # this is something I may try implementing later
 
     # Iterate through data
     for b, (x, label) in enumerate(dataloader):
+        print("Gram batch # ", b)
+
+        # Set the activation hooks for the transformer class
+        cache = {}
+        model.remove_all_hooks()
+        model.cache_all(cache)
+        # model.setup_hooks(Transformer.hook_activations)  # this is something I may try implementing later
+
         # Send x into model to trigger hooks
         model(x.reshape(len(x), -1).to(device))
 
         # Grab the activations that the hook stored
-        activations = model.activations
+        activations = grab_activations(cache)
 
         # If this is the first pass, instantiate an empty gram tensor in the dictionary to avoid key errors
         if b == 0:
-            grams = {i: torch.zeros((act.shape[1], act.shape[1])).to(device) for i, act in enumerate(activations)}
+            grams = {i: torch.zeros((act.shape[2], act.shape[2])).to(device) for i, act in activations.items()}
 
         # Compute the gram matrix for each layer i, using the activations, for a single batch of data
-        for i, act in enumerate(activations):
-
-            # Gram matrix is defined as the inner product of the activations with its own transpose
-            grams[i] += torch.matmul(act.transpose(0, 1), act)
+        for i, act in activations.items():
+            grams[i] += torch.sum(torch.matmul(act.transpose(1, 2), act), dim=0)
 
     # Normalize each gram matrix by the number of samples |x|
     for k,v in grams.items():
-        grams[k] = grams[k] / DATA_SIZE
+        grams[k] = grams[k] / len(dataloader.dataset)
 
     # Remove the hooks
-    remove_hooks(model)
+    model.remove_all_hooks()
     return grams
 
 
