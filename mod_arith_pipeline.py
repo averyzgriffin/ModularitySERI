@@ -140,103 +140,100 @@ def eigensolve(matrices: dict, object, threshold):
 
 def compute_M(model, grams, dataloader, u, s, s_invrs):
     M = {}
-    func_derivatives = {}
-
-    # Add hooks that will trigger when a sample x is passed through the model
-    add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
 
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
-            # Reset the derivatives before each pass
-            model.derivatives = []
-            print("M Computatation # samples processed ", b*len(x))
+            print("M batch", b)
 
-            # Pass a batch through the model to trigger hooks
-            pred = model(x.reshape(len(x), -1).to(device))
+            derivatives = get_derivatives(model, x)
 
-            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
-            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
-            model.derivatives[-1] = model.derivatives[-1][:,1:,:]
-
-            # Compute the M matrix for each set of derivatives; corresponds to each layer except last one
             for n, df in enumerate(model.derivatives):
-
                 # Transform the functional derivatives
                 transformed_df = transform_derivatives(df, n, u, s, s_invrs)
 
                 # Grab the gram matrix for current layer
-                gram = grams[n]
+                gram = grams["blocks.0.hook_resid_pre"]
 
                 # Set M value in dictionary to 0 to avoid key error
-                M.setdefault(n, 0)
+                M.setdefault("blocks.0.hook_resid_pre", 0)
 
                 # Compute M
                 # Equivalent to M[n] += df.T @ df @ gram @ gram.T + gram @ gram.T @ df.T @ df
-                M[n] += torch.sum( (torch.matmul(transformed_df.permute(0, 2, 1), torch.matmul(transformed_df, gram))) +
+                M["blocks.0.hook_resid_pre"] += torch.sum( (torch.matmul(transformed_df.permute(0, 2, 1), torch.matmul(transformed_df, gram))) +
                                    (torch.matmul(gram, torch.matmul(transformed_df.permute(0, 2, 1), transformed_df))), dim=0)
 
-            del x, label, model.derivatives, pred, n, df, gram
+                del x, label, derivatives, df, gram, transformed_df
 
     # Normalize each M matrix by the number of samples |x|
     for k,v in M.items():
         M[k] = M[k] / len(dataloader.dataset)
 
-    # Remove the hooks
-    remove_hooks(model)
     return M
 
 
 def transform_network2(model, dataloader, u, s, s_invrs, v):
     new_edges = {}
 
-    # Add hooks that will trigger when a sample x is passed through the model
-    add_hooks(model, hookfuncs=[model.compute_derivatives_hook])
-
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
-            # Reset the derivatives before each pass
-            model.derivatives = []
-            print("New Edges Computatation # samples processed ", b * len(x))
+            print("Edge batch", b)
+            # Send through the embedding and detach
+            hidden = model.pos_embed(model.embed(x))
+            detached_hidden = hidden.detach()
+            detached_hidden.requires_grad = True
 
-            # Pass a batch through the model to trigger hooks
-            pred = model(x.reshape(len(x), -1).to(device))
+            jacob = torch.autograd.functional.jacobian(func, hidden)
+            df = (jacob.sum(dim=(2, 5)).pow(2).reshape(jacob.shape[0], -1, jacob.shape[0],
+                                                       jacob.shape[-1]) / torch.tensor([2 * 3]).to(device)).sum(
+                dim=2)
 
-            # Remove derivative connections to the nonexistent bias in the last layer (this only works for batches)
-            # dfs should be: (n+1)x(m+1) each layer but (n+1)x(m) last layer; n := size of L, m:= L+1;
-            model.derivatives[-1] = model.derivatives[-1][:, 1:, :]
+            # Transform the functional derivatives
+            transformed_df = transform_derivatives(df, 0, u, s, s_invrs)
 
-            for n in range(len(model.derivatives)-1):
-                # Transform the functional derivatives
-                df = model.derivatives[n]
-                transformed_df = transform_derivatives(df, n, u, s, s_invrs)
+            # Set new edges value in dictionary to 0 to avoid key error
+            new_edges.setdefault("blocks.0.hook_resid_pre", 0)
 
-                # Set new edges value in dictionary to 0 to avoid key error
-                new_edges.setdefault(n, 0)
+            # Compute new edges
+            # a = torch.matmul(v["blocks.0.post_attn.hook_z"].T, torch.matmul(transformed_df, v["blocks.0.hook_resid_pre"]))
+            a = torch.matmul(transformed_df, v["blocks.0.hook_resid_pre"])
+            new_edges["blocks.0.hook_resid_pre"] += torch.sum(torch.pow(a, 2), axis=0)
 
-                # Compute new edges
-                a = torch.matmul(v[n+1].T, torch.matmul(transformed_df, v[n]))
-                new_edges[n] += torch.sum(torch.pow(a, 2), axis=0)
-
-            del x, label, model.derivatives, pred, n, df, a, transformed_df
+            del x, label, df, a, transformed_df, jacob, hidden, detached_hidden
 
     # Normalize each M matrix by the number of samples |x|
     for k, v in new_edges.items():
         new_edges[k] = new_edges[k] / len(dataloader.dataset)
 
-    # Remove the hooks
-    remove_hooks(model)
     return new_edges
 
 
+def get_derivatives(model, x):
+    def func(in_):
+        return model.blocks[0].attn(in_)
+
+    derivatives = []
+
+    # First derivative
+    hidden = model.pos_embed(model.embed(x))
+    detached_hidden = hidden.detach()
+    detached_hidden.requires_grad = True
+    jacob = torch.autograd.functional.jacobian(func, hidden)
+    df = (jacob.sum(dim=(2, 5)).pow(2).reshape(jacob.shape[0], -1, jacob.shape[0],
+                                               jacob.shape[-1]) / torch.tensor([2 * 3]).to(device)).sum(dim=2)
+    derivatives.append(df)
+
+    # Second derivative
+
+    return derivatives
+
+
 def transform_derivatives(df, n, u, s, s_invsr):
-    new_ds = []
-    for i,d in enumerate(df):
-        new_d = torch.matmul(torch.diag(s[n+1]), torch.matmul(u[n+1].T, torch.matmul(d, torch.matmul(u[n], torch.diag(s_invsr[n])))))
-        new_ds.append(new_d)
-    new_ds = torch.stack(new_ds)
-    return new_ds
+    keys = list(s.keys())
+    for n in range(len(keys)-1):
+        new_d = torch.matmul(torch.diag(s[keys[n+1]]), torch.matmul(u[keys[n+1]].T, torch.matmul(df, torch.matmul(u[keys[n]], torch.diag(s_invsr[keys[n]])))))
+    return new_d
 
 
 def add_hooks(model, hookfuncs: list):
