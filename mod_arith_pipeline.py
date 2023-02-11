@@ -30,7 +30,7 @@ def main(network, train):
     D, Dnorm, V, Dpsuedo = eigensolve(M, object="M", threshold=0.0001)
 
     # Transforming the edges to new basis
-    new_edges = transform_network2(network, train, U, S, Spseudo, V)
+    new_edges = transform_network(network, train, U, S, Spseudo, V, keys)
 
 
 def build_model():
@@ -146,6 +146,8 @@ def compute_M(model, grams, dataloader, u, s, s_invrs, keys):
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
+            if b == 10:
+                break
             print("M batch", b)
 
             derivatives = get_derivatives(model, x)
@@ -175,12 +177,14 @@ def compute_M(model, grams, dataloader, u, s, s_invrs, keys):
     return M
 
 
-def transform_network2(model, dataloader, u, s, s_invrs, v):
+def transform_network(model, dataloader, u, s, s_invrs, v, keys):
     new_edges = {}
 
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
+            if b == 10:
+                break
             print("Edge batch", b)
 
             derivatives = get_derivatives(model, x)
@@ -188,15 +192,14 @@ def transform_network2(model, dataloader, u, s, s_invrs, v):
             for n, df in enumerate(derivatives):
 
                 # Transform the functional derivatives
-                transformed_df = transform_derivatives(df, 0, u, s, s_invrs)
+                transformed_df = transform_derivatives(df, n, u, s, s_invrs, keys)
 
                 # Set new edges value in dictionary to 0 to avoid key error
-                new_edges.setdefault("blocks.0.hook_resid_pre", 0)
+                new_edges.setdefault(keys[n], 0)
 
                 # Compute new edges
-                # a = torch.matmul(v["blocks.0.post_attn.hook_z"].T, torch.matmul(transformed_df, v["blocks.0.hook_resid_pre"]))
-                a = torch.matmul(transformed_df, v["blocks.0.hook_resid_pre"])
-                new_edges["blocks.0.hook_resid_pre"] += torch.sum(torch.pow(a, 2), axis=0)
+                a = torch.matmul(v[keys[n+1]].T, torch.matmul(transformed_df, v[keys[n]]))  # TODO do we transpose v(n+1) or no?
+                new_edges[keys[n]] += torch.sum(torch.pow(a, 2), axis=0)
 
                 del x, label, derivatives, df, a, transformed_df
 
