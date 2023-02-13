@@ -146,8 +146,6 @@ def compute_M(model, grams, dataloader, u, s, s_invrs, keys):
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
-            if b == 10:
-                break
             print("M batch", b)
 
             derivatives = get_derivatives(model, x)
@@ -183,13 +181,12 @@ def transform_network(model, dataloader, u, s, s_invrs, v, keys):
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
-            if b == 10:
-                break
             print("Edge batch", b)
 
             derivatives = get_derivatives(model, x)
 
-            for n, df in enumerate(derivatives):
+            for n in range(len(derivatives)-1):
+                df = derivatives[n]
 
                 # Transform the functional derivatives
                 transformed_df = transform_derivatives(df, n, u, s, s_invrs, keys)
@@ -217,6 +214,7 @@ def get_derivatives(model, x):
     derivatives = []
 
     # First derivative
+    print("First derivative")
     hidden = model.pos_embed(model.embed(x))
     detached_hidden = hidden.detach()
     detached_hidden.requires_grad = True
@@ -230,6 +228,7 @@ def get_derivatives(model, x):
     for n, param in enumerate(model.named_parameters()):
         name, value = param[0], param[1]
 
+        print("Second derivative")
         # Second derivative
         if name == 'blocks.0.post_attn.W_O':
             derivatives.append(value.detach().unsqueeze(0).expand(len(x),-1,-1))
