@@ -18,17 +18,28 @@ def diag_input(model, u, s, s_invrs):
 
 
 def diag_residual_start(model, cache, u, s, s_invrs):
-    sig = cache['blocks.0.attn.hook_post_softmax'][:,:,2,:]
-    WV = model.blocks[0].attn.W_V.detach()
+    sig = cache['blocks.0.attn.hook_post_softmax'][:,:,2,:]  # shape (50, 4, 3)
+    WV = model.blocks[0].attn.W_V.detach()  # shape (4, 32, 128)
 
     sig = sig.unsqueeze(2)  # shape: (50, 4, 1, 3)
 
-    # Transform
+    # Transformation. shape (128, 128)
     WV = torch.diag(s['blocks.0.attn.hook_vprime_concat']) @ u['blocks.0.attn.hook_vprime_concat'] @  WV.view(128,128) @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
+
+    # Reshape to (4,32,3,128)
     WV = WV.view(4,32,128).unsqueeze(2).expand(4, 32, 3, 128)
 
-    sig_wv = torch.einsum("bhet,hftd->bhftd", sig, WV)
-    squared_sig_wv = sig_wv.sum(1).sum(1).permute(0,2,1) @ sig_wv.sum(1).sum(1)
+    sig_wv = torch.einsum("bhet,hftd->bhftd", sig, WV)  # shape (50, 4, 32, 3, 128)
+    temp = sig_wv.view(len(sig_wv), 128, 3, 128)
+    temp1 = temp[:,:,0,:]
+    temp2 = temp[:,:,1,:]
+    temp3 = temp[:,:,2,:]
+
+    squared_sig_wv1 = temp1.permute(0,2,1) @ temp1
+    squared_sig_wv2 = temp2.permute(0,2,1) @ temp2
+    squared_sig_wv3 = temp3.permute(0,2,1) @ temp3
+    squared_sig_wv = squared_sig_wv1 + squared_sig_wv2 + squared_sig_wv3
+    squared_sig_wv = squared_sig_wv.sum(0)
 
     I = torch.cat((torch.zeros((1, 128)), torch.eye(128)), dim=0).to(device)
     I = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ I @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
@@ -43,7 +54,7 @@ def diag_residual_start(model, cache, u, s, s_invrs):
     WE = torch.diag(s['blocks.0.hook_resid_pre']) @ u['blocks.0.hook_resid_pre'] @ WE @ u['embed.hook_input'].T @ torch.diag(s_invrs['embed.hook_input'])
     squared_WE = 3 * torch.matmul(WE, WE.T)
 
-    sum = squared_WE + squared_I + squared_WE
+    sum = squared_sig_wv + squared_I + squared_WE
     return sum
 
 
@@ -60,8 +71,17 @@ def diag_attention_out(model, cache, u, s, s_invrs):
     WV = torch.diag(s['blocks.0.attn.hook_vprime_concat']) @ u['blocks.0.attn.hook_vprime_concat'] @  WV.view(128,128) @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
     WV = WV.view(4,32,128).unsqueeze(2).expand(4, 32, 3, 128)
 
-    sig_wv = torch.einsum("bhet,hftd->bhftd", sig, WV)
-    squared_sig_wv = sig_wv.sum(1).sum(1).permute(0,2,1) @ sig_wv.sum(1).sum(1)
+    sig_wv = torch.einsum("bhet,hftd->bhftd", sig, WV)  # shape (50, 4, 32, 3, 128)
+    temp = sig_wv.view(len(sig_wv), 128, 3, 128)
+    temp1 = temp[:, :, 0, :]
+    temp2 = temp[:, :, 1, :]
+    temp3 = temp[:, :, 2, :]
+
+    squared_sig_wv1 = temp1.permute(0, 2, 1) @ temp1
+    squared_sig_wv2 = temp2.permute(0, 2, 1) @ temp2
+    squared_sig_wv3 = temp3.permute(0, 2, 1) @ temp3
+    squared_sig_wv = squared_sig_wv1 + squared_sig_wv2 + squared_sig_wv3
+    squared_sig_wv = squared_sig_wv.sum(0)
 
     sum = squared_wz + squared_sig_wv
     return sum
