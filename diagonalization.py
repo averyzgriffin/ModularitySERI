@@ -6,8 +6,14 @@ device = torch.device("cuda:0")
 
 def diag_input(model, u, s, s_invrs):
     WE = model.embed.W_E.detach()
+
+    # Account for bias
+    WP = model.pos_embed.W_pos.detach()
+    max_values, _ = torch.max(WP, dim=0)
+    max_values = max_values.view(-1, 1)
+    WE = torch.cat([max_values, WE], dim=1)
+
     WE = torch.diag(s['blocks.0.hook_resid_pre']) @ u['blocks.0.hook_resid_pre'] @ WE @ u['embed.hook_input'].T @ torch.diag(s_invrs['embed.hook_input'])
-    # TODO handle the bias after we add it in
     return 3 * torch.matmul(WE.T, WE)
 
 
@@ -25,11 +31,15 @@ def diag_residual_start(model, cache, u, s, s_invrs):
     squared_sig_wv = sig_wv.sum(1).sum(1).permute(0,2,1) @ sig_wv.sum(1).sum(1)
 
     I = torch.cat((torch.zeros((1, 128)), torch.eye(128)), dim=0).to(device)
-    # TODO we need to add a row and column to u and s for the bias in resid mid (and probably other layers too)
-    # I = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ I @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
+    I = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ I @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
     squared_I = torch.matmul(I.T, I)
 
     WE = model.embed.W_E.detach()
+    # Account for bias
+    WP = model.pos_embed.W_pos.detach()
+    max_values, _ = torch.max(WP, dim=0)
+    max_values = max_values.view(-1, 1)
+    WE = torch.cat([max_values, WE], dim=1)
     WE = torch.diag(s['blocks.0.hook_resid_pre']) @ u['blocks.0.hook_resid_pre'] @ WE @ u['embed.hook_input'].T @ torch.diag(s_invrs['embed.hook_input'])
     squared_WE = 3 * torch.matmul(WE, WE.T)
 
@@ -40,8 +50,7 @@ def diag_residual_start(model, cache, u, s, s_invrs):
 def diag_attention_out(model, cache, u, s, s_invrs):
     WZ = model.blocks[0].post_attn.W_O.detach()
     WZ = torch.cat((torch.zeros((1, 128)).to(device), WZ), dim=0)
-    # TODO add bias to u and s
-    # WZ = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  WZ @ u['blocks.0.attn.hook_vprime_concat'].T @ torch.diag(s_invrs['blocks.0.attn.hook_vprime_concat'])
+    WZ = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  WZ @ u['blocks.0.attn.hook_vprime_concat'].T @ torch.diag(s_invrs['blocks.0.attn.hook_vprime_concat'])
     squared_wz = torch.matmul(WZ.T, WZ)
 
     sig = cache['blocks.0.attn.hook_post_softmax'][:,:,2,:]
@@ -78,22 +87,21 @@ def diag_residual_mid(model, cache, u, s, s_invrs):
 
     # M(x)
     M = torch.matmul(ratio, WH)
-    M = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  M @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
+    M = torch.diag(s['blocks.0.mlp.hook_hidden']) @ u['blocks.0.mlp.hook_hidden'] @  M @ u['blocks.0.hook_resid_mid'].T @ torch.diag(s_invrs['blocks.0.hook_resid_mid'])
     squared_M = torch.matmul(M.permute(0,2,1), M)
 
-    II = torch.cat((torch.zeros((1, 128)), torch.eye(128)), dim=0).to(device)
-    # II = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ II @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
-    squared_II = torch.matmul(II, II.T)  # TODO i think I am doing the identities wrong
+    II = torch.cat((torch.zeros((128, 1)), torch.eye(128)), dim=1).to(device)
+    II = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @ II @ u['blocks.0.hook_resid_mid'].T @ torch.diag(s_invrs['blocks.0.hook_resid_mid'])
+    squared_II = torch.matmul(II.T, II)
 
     WZ = model.blocks[0].post_attn.W_O.detach()
     WZ = torch.cat((torch.zeros((1, 128)).to(device), WZ), dim=0)
-    # TODO add bias to u and s
-    # WZ = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  WZ @ u['blocks.0.attn.hook_vprime_concat'].T @ torch.diag(s_invrs['blocks.0.attn.hook_vprime_concat'])
+    WZ = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  WZ @ u['blocks.0.attn.hook_vprime_concat'].T @ torch.diag(s_invrs['blocks.0.attn.hook_vprime_concat'])
     squared_wz = torch.matmul(WZ, WZ.T)
 
     I = torch.cat((torch.zeros((1, 128)), torch.eye(128)), dim=0).to(device)
-    # I = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ I @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
-    squared_I = torch.matmul(I, I.T)  # TODO i think I am doing the identities wrong
+    I = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ I @ u['blocks.0.hook_resid_pre'].T @ torch.diag(s_invrs['blocks.0.hook_resid_pre'])
+    squared_I = torch.matmul(I, I.T)
 
     sum = squared_M + squared_II + squared_wz + squared_I
     return sum
@@ -116,14 +124,13 @@ def diag_hidden(model, cache, u, s, s_invrs):
     WH = torch.cat((b_out.unsqueeze(0), WH), dim=0)
 
     M = torch.matmul(ratio, WH)
-    M = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @  M @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
+    M = torch.diag(s['blocks.0.mlp.hook_hidden']) @ u['blocks.0.mlp.hook_hidden'] @  M @ u['blocks.0.hook_resid_mid'].T @ torch.diag(s_invrs['blocks.0.hook_resid_mid'])
     squared_M = torch.matmul(M, M.permute(0,2,1))
 
     WO = model.blocks[0].mlp.W_out.detach()
     b_out = model.blocks[0].mlp.b_out.detach()
     WO = torch.cat((b_out.unsqueeze(1), WO), dim=1)
-    # TODO add bias to u and s
-    # WO = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @  WO @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
+    WO = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @  WO @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
     squared_WO = torch.matmul(WO.T, WO)
 
     sum = squared_M + squared_WO
@@ -134,28 +141,25 @@ def diag_output(model, u, s, s_invrs):
     WO = model.blocks[0].mlp.W_out.detach()
     b_out = model.blocks[0].mlp.b_out.detach()
     WO = torch.cat((b_out.unsqueeze(1), WO), dim=1)
-    # TODO add bias to u and s
-    # WO = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @  WO @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
+    WO = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @  WO @ u['blocks.0.mlp.hook_hidden'].T @ torch.diag(s_invrs['blocks.0.mlp.hook_hidden'])
     squared_WO = torch.matmul(WO, WO.T)
 
-    II = torch.cat((torch.zeros((1, 128)), torch.eye(128)), dim=0).to(device)
-    # II = torch.diag(s['blocks.0.hook_resid_mid']) @ u['blocks.0.hook_resid_mid'] @ II @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
-    squared_I = torch.matmul(II.T, II)  # TODO i think I am doing the identities wrong
+    II = torch.cat((torch.zeros((128, 1)), torch.eye(128)), dim=1).to(device)
+    II = torch.diag(s['blocks.0.hook_resid_post']) @ u['blocks.0.hook_resid_post'] @ II @ u['blocks.0.hook_resid_mid'].T @ torch.diag(s_invrs['blocks.0.hook_resid_mid'])
+    squared_II = torch.matmul(II, II.T)
 
-    WP = model.unembed.W_U.detach()
-    # TODO add bias to u and s
-    # WP = torch.diag(s['hook_unembed_post']) @ u['hook_unembed_post'] @  WP @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
-    squared_WP = torch.matmul(WP, WP.T)
+    WP = model.unembed.W_U.detach().T
+    WP = torch.diag(s['hook_unembed_post']) @ u['hook_unembed_post'] @ WP @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
+    squared_WP = torch.matmul(WP.T, WP)
 
-    sum = squared_WO + squared_I + squared_WP
+    sum = squared_WO + squared_II + squared_WP
     return sum
 
 
 def diag_unembed(model, u, s, s_invrs):
-    WP = model.unembed.W_U.detach()
-    # TODO add bias to u and s
-    # WP = torch.diag(s['hook_unembed_post']) @ u['hook_unembed_post'] @ WP @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
-    squared_WP = torch.matmul(WP.T, WP)
+    WP = model.unembed.W_U.detach().T
+    WP = torch.diag(s['hook_unembed_post']) @ u['hook_unembed_post'] @ WP @ u['blocks.0.hook_resid_post'].T @ torch.diag(s_invrs['blocks.0.hook_resid_post'])
+    squared_WP = torch.matmul(WP, WP.T)
     return squared_WP
 
 
