@@ -8,8 +8,9 @@ from models import Transformer
 from analysis import interactive_histogram
 
 
-def main(models: list, data, labels, which_models):
-    scores = []
+def main(models: list, train_data, test_data, train_labels, test_labels, which_models):
+    train_scores = []
+    test_scores = []
     eigs = []
     num = 1
     for model in models:
@@ -20,13 +21,19 @@ def main(models: list, data, labels, which_models):
         model.remove_all_hooks()
         model.cache_all(cache)
 
-        # Forward Pass
-        original_logits = model(data)[:, -1]
-        original_logits = original_logits[:, :-1]
+        # Training Data Forward Pass + Loss
+        train_logits = model(train_data)[:, -1]
+        train_logits = train_logits[:, :-1]
+        train_loss = cross_entropy_high_precision(train_logits, train_labels)
+        train_score = train_loss.to("cpu").detach().float()
+        train_scores.append(float(train_score))
 
-        # Get loss
-        original_loss = cross_entropy_high_precision(original_logits, labels)
-        score = original_loss.to("cpu").detach().float() # TODO + something
+        # Test Data Loss
+        test_logits = model(test_data)[:, -1]
+        test_logits = test_logits[:, :-1]
+        test_loss = cross_entropy_high_precision(test_logits, test_labels)
+        test_score = test_loss.to("cpu").detach().float()
+        test_scores.append(float(test_score))
 
         def compute_grams(cache):
             grams = {}
@@ -109,10 +116,21 @@ def cross_entropy_high_precision(logits, labels):
     return loss
 
 
+def gen_train_test(frac_train, num, seed=0):
+    pairs = [(i, j, num) for i in range(num) for j in range(num)]
+    pairs = torch.tensor(pairs)
+    random.seed(seed)
+    random.shuffle(pairs)
+    div = int(frac_train*len(pairs))
+    return pairs[:div], pairs[div:]
+
+
 if __name__ == "__main__":
     path = r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\grokking\grok_1674663919"
     these_models = list(range(0,1000,100)) + list(range(1000,20000,1000))
     p = 113
+    frac_train = .25
+    seed = 0
     device = "cuda"
 
     fn_name = 'add'
@@ -123,8 +141,13 @@ if __name__ == "__main__":
     all_data = torch.tensor([(i, j, p) for i in range(p) for j in range(p)]).to('cuda')
     all_labels = torch.tensor([fn(i, j) for i, j, _ in all_data]).to('cuda')
 
+    train, test = gen_train_test(frac_train, p, seed)
+
+    train_labels = torch.tensor([fn(i, j) for i, j, _ in train]).to('cuda')
+    test_labels = torch.tensor([fn(i, j) for i, j, _ in test]).to('cuda')
+
     models = load_models(path, device, these_models)
-    main(models, all_data, all_labels, these_models)
+    main(models, train, test, train_labels, test_labels, these_models)
 
 
 
