@@ -5,32 +5,48 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from analysis import interactive_histogram
 from datasets import ModularArithmeticDataset
+import diagonalization as diag
+import edges as edge
 from hooks import grab_activations
 from models import OrthogMLP, Transformer
 from train import Trainer
+
 
 
 device = torch.device("cuda:0")
 DATA_SIZE = 1234
 
 
-def main(network, train):
+def main(networks, train):
+    all_edges = []
+    for network in networks:
 
-    gram = compute_gram(network, train)
+        gram = compute_gram(network, train)
 
-    keys = list(gram.keys())
+        keys = list(gram.keys())
 
-    # Lam = eigenvalues, S = negative squareroot of lam, U = eigenvectors, Spseudo = pseudo inverse of S
-    lam, S, U, Spseudo = eigensolve(gram, object="gram", threshold=0.0001)
+        # Lam = eigenvalues, S = negative squareroot of lam, U = eigenvectors, Spseudo = pseudo inverse of S
+        lam, S, U, Spseudo = eigensolve(gram, object="gram", threshold=0.0001)
 
-    M = compute_M(network, gram, train, U, S, Spseudo, keys)
+        M = compute_diag(network, train, U, S, Spseudo, keys)
 
-    # Eigendata for the M matrix
-    D, Dnorm, V, Dpsuedo = eigensolve(M, object="M", threshold=0.0001)
+        # Eigendata for the M matrix
+        D, Dnorm, Q, Dpsuedo = eigensolve(M, object="M", threshold=0.0001)
 
-    # Transforming the edges to new basis
-    new_edges = transform_network(network, train, U, S, Spseudo, V, keys)
+        # Transforming the edges to new basis
+        new_edges = compute_edges(network, train, U, S, Spseudo, Q, keys)
+
+        merged_edges = torch.cat([edge.flatten().to("cpu") for edge in new_edges.values()])
+        all_edges.append(merged_edges)
+
+    scores = [1]*len(all_edges)
+    which_models = [1]*len(all_edges)
+    n_bins = [100, 1000]
+    save_path = "del/"
+    interactive_histogram(all_edges, scores, which_models, n_bins, save_path)
+    print("done")
 
 
 def build_model():
@@ -140,110 +156,116 @@ def eigensolve(matrices: dict, object, threshold):
     return eigenvalues, s, eigenvectors, psuedo_inverse_s
 
 
-def compute_M(model, grams, dataloader, u, s, s_invrs, keys):
+def compute_diag(model, dataloader, u, s, s_invrs, keys):
     M = {}
+    cache = {}
+    model.remove_all_hooks()
+    model.cache_all(cache)
 
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
+            # if b == 5: break
             print("M batch", b)
+            if b == 63:
+                print()
 
-            derivatives = get_derivatives(model, x)
+            prediction = model(x)[:, -1]  # Call the model such that the forward hooks are triggered
+            activations = grab_activations(cache)  # Grab the specific layers we want
 
-            for n, df in enumerate(derivatives):
-                # Transform the functional derivatives
-                transformed_df = transform_derivatives(df, n, u, s, s_invrs, keys)
+            # Input layer
+            DI = diag.diag_input(model, u, s, s_invrs)
 
-                # Grab the gram matrix for current layer
-                gram = grams[keys[n]]
+            # First residual start
+            DR1 = diag.diag_residual_start(model, cache, u, s, s_invrs)
 
+            # Attention Output
+            DV = diag.diag_attention_out(model, cache, u, s, s_invrs)
+
+            # Attention residual mid
+            DR2 = diag.diag_residual_mid(model, cache, u, s, s_invrs)
+
+            # MLP Hidden Layer
+            DH = diag.diag_hidden(model, cache, u, s, s_invrs)
+
+            # MLP Output
+            DO = diag.diag_output(model, u, s, s_invrs)
+
+            # Unembedding
+            DU = diag.diag_unembed(model, u, s, s_invrs)
+
+            matrices = [DI, DR1, DV, DR2, DH, DO, DU]
+
+            for n in range(len(matrices)):
                 # Set M value in dictionary to 0 to avoid key error
                 M.setdefault(keys[n], 0)
+                if len(matrices[n].shape) == 3:
+                    matrices[n] = torch.sum(matrices[n], dim=0)
+                M[keys[n]] += matrices[n]
 
-                # Compute M
-                # Equivalent to M[n] += df.T @ df @ gram @ gram.T + gram @ gram.T @ df.T @ df
-                M[keys[n]] += torch.sum( (torch.matmul(transformed_df.permute(0, 2, 1), torch.matmul(transformed_df, gram))) +
-                                   (torch.matmul(gram, torch.matmul(transformed_df.permute(0, 2, 1), transformed_df))), dim=0)
-
-                del gram, df, transformed_df
-            del x, label, derivatives
+            del x, label, matrices, DI, DR1, DV, DR2, DH, DO, DU, prediction, activations
 
     # Normalize each M matrix by the number of samples |x|
-    for k,v in M.items():
+    for k, v in M.items():
         M[k] = M[k] / len(dataloader.dataset)
 
     return M
 
 
-def transform_network(model, dataloader, u, s, s_invrs, v, keys):
-    new_edges = {}
+def compute_edges(model, dataloader, u, s, s_invrs, q, keys):
+    edges = {}
+    cache = {}
+    model.remove_all_hooks()
+    model.cache_all(cache)
 
     with torch.no_grad():
         # Iterate through the data
         for b, (x, label) in enumerate(dataloader):
             print("Edge batch", b)
 
-            derivatives = get_derivatives(model, x)
+            prediction = model(x)[:, -1]  # Call the model such that the forward hooks are triggered
+            activations = grab_activations(cache)  # Grab the specific layers we want
 
-            for n in range(len(derivatives)-1):
-                df = derivatives[n]
+            # Input layer
+            EI = edge.edge_input(model, u, s, s_invrs, q)
 
-                # Transform the functional derivatives
-                transformed_df = transform_derivatives(df, n, u, s, s_invrs, keys)
+            # First residual1 to 2
+            ER12 = edge.edge_residual12(model, cache, u, s, s_invrs, q)
 
-                # Set new edges value in dictionary to 0 to avoid key error
-                new_edges.setdefault(keys[n], 0)
+            # First residual1 to attention output
+            ER1V = edge.edge_r1_attention(model, cache, u, s, s_invrs, q)
 
-                # Compute new edges
-                a = torch.matmul(v[keys[n+1]].T, torch.matmul(transformed_df, v[keys[n]]))  # TODO do we transpose v(n+1) or no?
-                new_edges[keys[n]] += torch.sum(torch.pow(a, 2), axis=0)
+            # Attention to R2
+            EVR2 = edge.edge_attention_r2(model, cache, u, s, s_invrs, q)
 
-                del x, label, derivatives, df, a, transformed_df
+            # R2 to R3
+            ER23 = edge.edge_residual23(model, cache, u, s, s_invrs, q)
+
+            # R2 to MLP Hidden Layer
+            ER2H = edge.edge_r2_hidden(model, cache, u, s, s_invrs, q)
+
+            # MLP Hidden to R3
+            EHR3 = edge.edge_hidden_r3(model, cache, u, s, s_invrs, q)
+
+            # R3 to Unembedding
+            ER3U = edge.edge_R3_unembed(model, u, s, s_invrs, q)
+
+            matrices = [EI, ER12, ER1V, EVR2, ER23, ER2H, EHR3, ER3U]
+
+            for n in range(len(matrices)-1):
+                # Set value in dictionary to 0 to avoid key error
+                edges.setdefault(keys[n], 0)
+                if len(matrices[n].shape) == 3:
+                    matrices[n] = torch.sum(matrices[n], dim=0)
+                edges[keys[n]] += matrices[n]
+
+            del x, label, matrices, EI, ER12, ER1V, EVR2, ER23, ER2H, EHR3, ER3U, prediction, activations
 
     # Normalize each M matrix by the number of samples |x|
-    for k, v in new_edges.items():
-        new_edges[k] = new_edges[k] / len(dataloader.dataset)
+    for k, v in edges.items():
+        edges[k] = edges[k] / len(dataloader.dataset)
 
-    return new_edges
-
-
-def get_derivatives(model, x):
-    def func(in_):
-        return model.blocks[0].attn(in_)
-
-    derivatives = []
-
-    # First derivative
-    print("First derivative")
-    hidden = model.pos_embed(model.embed(x))
-    detached_hidden = hidden.detach()
-    detached_hidden.requires_grad = True
-    jacob = torch.autograd.functional.jacobian(func, hidden)
-    df = (jacob.sum(dim=(1, 4)).pow(2).reshape(jacob.shape[0], -1, jacob.shape[0],
-                                               jacob.shape[-1]) / torch.tensor([9]).to(device)).sum(dim=2)
-    derivatives.append(df)
-
-    del hidden, detached_hidden, jacob, df
-    # Iterate through rest of the layers
-    for n, param in enumerate(model.named_parameters()):
-        name, value = param[0], param[1]
-
-        print("Second derivative")
-        # Second derivative
-        if name == 'blocks.0.post_attn.W_O':
-            derivatives.append(value.detach().unsqueeze(0).expand(len(x),-1,-1))
-
-    return derivatives
-
-
-def transform_derivatives(derivatives, n, u, s, s_invsr, keys):
-    new_ds = []
-    for i,df in enumerate(derivatives):
-        new_d = torch.matmul(torch.diag(s[keys[n+1]]), torch.matmul(u[keys[n+1]].T,
-                                          torch.matmul(df, torch.matmul(u[keys[n]], torch.diag(s_invsr[keys[n]])))))
-        new_ds.append(new_d)
-    new_ds = torch.stack(new_ds)
-    return new_ds
+    return edges
 
 
 def add_hooks(model, hookfuncs: list):
@@ -260,16 +282,16 @@ def remove_hooks(model):
 
 
 if __name__ == '__main__':
-    path = r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\deafult101_final.pth"
+    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\default101_final.pth"
     network = load_model(path, device)
 
     p = 113
     fn_name = 'add'
     dataset = ModularArithmeticDataset(p, fn_name, device)
 
-    dataloader = DataLoader(dataset, batch_size=20, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=200, shuffle=True)
 
-    main(network, dataloader)
+    main([network, network], dataloader)
 
 
 

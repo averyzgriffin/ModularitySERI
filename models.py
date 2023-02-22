@@ -43,20 +43,44 @@ class OrthogMLP(nn.Module):
         return x
 
     def compute_derivatives_hook(self, module, in_, out_):
+        """Hook function to compute the derivative of the activations with respect to previous layer."""
+
+        # Output of the current layer (output_of_layer_L)
         output_of_layer_L = out_
+
+        # Mask for the ReLU activation. Sets any value >0 to 1 and <=0 to 1
         mask = (output_of_layer_L > 0).float()
-        # mask = torch.cat((torch.tensor([1.0]).reshape(1,1), mask), dim=1) # if not using batches
+
+        # Array of ones for bias connections. Added to mask separately since bias is always 1
         ones = torch.ones(output_of_layer_L.shape[0], 1).to(device)
+
+        # Concatenation of the ones and mask
         mask = torch.cat((ones, mask), dim=1)
+
+        # Weights between the current layer and the next layer (weights_L_Lplus1)
         weights_L_Lplus1 = module.weight
+
+        # Bias between the current layer and the next layer (bias_L_Lplus1)
         bias_L_Lplus1 = module.bias
-        all_edges = torch.cat((bias_L_Lplus1.unsqueeze(dim=1), weights_L_Lplus1), dim=1)
-        all_edges = torch.cat((torch.zeros(1,all_edges.shape[1]).to(device), all_edges), dim=0)
-        all_edges[0][0] = 1
-        # masked_weights = mask * all_edges.T # if not using batches
-        masked_weights = torch.einsum("ij,jk->ikj", mask, all_edges)
+
+        # Concatenation of the bias for layer L and weights arrays
+        connections = torch.cat((bias_L_Lplus1.unsqueeze(dim=1), weights_L_Lplus1), dim=1)
+
+        # Zero padding to the top of the connections array. Represents connections to the bias in layer L+1
+        connections = torch.cat((torch.zeros(1, connections.shape[1]).to(device), connections), dim=0)
+
+        # Setting connection of the bias in L to the bias in L+1 to 1
+        connections[0][0] = 1
+
+        # Masking the weights. Corresponds to computing derivatives since df of relu is the weight value times a mask
+        masked_weights = torch.einsum("ij,jk->ijk", mask, connections)
+
+        # Appending the masked weights to the derivatives list
         self.derivatives.append(masked_weights)
-        del output_of_layer_L, mask, weights_L_Lplus1, bias_L_Lplus1, all_edges, masked_weights
+
+        # Deletion of the temporary variables to free up memory
+        del output_of_layer_L, mask, weights_L_Lplus1, bias_L_Lplus1, connections, masked_weights
+
         return out_
 
     def grab_activations_hook(self, module, in_, out_):
@@ -237,12 +261,19 @@ class Embed(nn.Module):
     def __init__(self, d_vocab, d_model):
         super().__init__()
         self.W_E = nn.Parameter(torch.randn(d_model, d_vocab) / np.sqrt(d_model))
+        self.hook_input = HookPoint()
 
     def forward(self, x):
-        # print("\nPre Embedding X: ", len(x), x[:5])
-        x = torch.einsum('dbp -> bpd', self.W_E[:, x])
-        # print("\nPost Embedding X: ", x.shape, x[:5])
-        return x
+        self.hook_input(self.convert_one_hot(x))
+        out = torch.einsum('dbp -> bpd', self.W_E[:, x])
+        return out
+
+    @staticmethod
+    def convert_one_hot(batched_tensor):
+        size = batched_tensor.max() + 1
+        one_hot = torch.zeros(batched_tensor.size() + (size,)).to(device)
+        one_hot.scatter_(-1, batched_tensor.unsqueeze(-1), 1)
+        return one_hot
 
 
 class Unembed(nn.Module):
@@ -294,15 +325,15 @@ class Attention(nn.Module):
         self.W_K = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
         self.W_Q = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
         self.W_V = nn.Parameter(torch.randn(num_heads, d_head, d_model) / np.sqrt(d_model))
-        self.W_O = nn.Parameter(torch.randn(d_model, d_head * num_heads) / np.sqrt(d_model))
         self.register_buffer('mask', torch.tril(torch.ones((n_ctx, n_ctx))))
         self.d_head = d_head
         self.hook_k = HookPoint()
         self.hook_q = HookPoint()
         self.hook_v = HookPoint()
-        self.hook_z = HookPoint()
-        self.hook_attn = HookPoint()
-        self.hook_attn_pre = HookPoint()
+        self.hook_pre_softmax = HookPoint()
+        self.hook_post_softmax = HookPoint()
+        self.hook_vprime = HookPoint()
+        self.hook_vprime_concat = HookPoint()
 
     def forward(self, x):
         k = self.hook_k(torch.einsum('ihd,bpd->biph', self.W_K, x))
@@ -310,11 +341,24 @@ class Attention(nn.Module):
         v = self.hook_v(torch.einsum('ihd,bpd->biph', self.W_V, x))
         attn_scores_pre = torch.einsum('biph,biqh->biqp', k, q)
         attn_scores_masked = torch.tril(attn_scores_pre) - 1e10 * (1 - self.mask[:x.shape[-2], :x.shape[-2]])
-        attn_matrix = self.hook_attn(F.softmax(self.hook_attn_pre(attn_scores_masked / np.sqrt(self.d_head)), dim=-1))
-        z = torch.einsum('biph,biqp->biqh', v, attn_matrix)
-        z_flat = self.hook_z(einops.rearrange(z, 'b i q h -> b q (i h)'))
-        out = torch.einsum('df,bqf->bqd', self.W_O, z_flat)
-        return out
+        attn_matrix = self.hook_post_softmax(F.softmax(self.hook_pre_softmax(attn_scores_masked / np.sqrt(self.d_head)), dim=-1))
+        vprime = self.hook_vprime(torch.einsum('biph,biqp->biqh', v, attn_matrix))
+        z = self.hook_vprime_concat(einops.rearrange(vprime, 'b i q h -> b q (i h)'))
+        # proj_z = torch.einsum('df,bqf->bqd', self.W_O, z_concat)
+        return z
+
+
+class PostAttention(nn.Module):
+    def __init__(self, d_model, num_heads, d_head, model):
+        super().__init__()
+        self.model = model
+        self.d_head = d_head
+        self.W_O = nn.Parameter(torch.randn(d_model, d_head * num_heads) / np.sqrt(d_model))
+        self.hook_projz = HookPoint()
+
+    def forward(self, x):
+        proj_z = self.hook_projz(torch.einsum('df,bqf->bqd', self.W_O, x))
+        return proj_z
 
 
 # MLP Layers
@@ -328,18 +372,17 @@ class MLP(nn.Module):
         self.b_out = nn.Parameter(torch.zeros(d_model))
         self.act_type = act_type
         # self.ln = LayerNorm(d_mlp, model=self.model)
-        self.hook_pre_relu = HookPoint()
-        self.hook_post_hidden = HookPoint()
+        self.hook_preact = HookPoint()
+        self.hook_hidden = HookPoint()
+        self.hook_out = HookPoint()
         assert act_type in ['ReLU', 'GeLU']
 
     def forward(self, x):
-        x = self.hook_pre_relu(torch.einsum('md,bpd->bpm', self.W_in, x) + self.b_in)
-        if self.act_type == 'ReLU':
-            x = F.relu(x)
-        elif self.act_type == 'GeLU':
-            x = F.gelu(x)
-        x = self.hook_post_hidden(x)
-        x = torch.einsum('dm,bpm->bpd', self.W_out, x) + self.b_out
+        x = self.hook_preact(torch.einsum('md,bpd->bpm', self.W_in, x) + self.b_in)
+        if self.act_type == 'ReLU': x = F.relu(x)
+        elif self.act_type == 'GeLU': x = F.gelu(x)
+        x = self.hook_hidden(x)
+        x = self.hook_out(torch.einsum('dm,bpm->bpd', self.W_out, x) + self.b_out)
         return x
 
 
@@ -350,17 +393,16 @@ class TransformerBlock(nn.Module):
         self.model = model
         # self.ln1 = LayerNorm(d_model, model=self.model)
         self.attn = Attention(d_model, num_heads, d_head, n_ctx, model=self.model)
+        self.post_attn = PostAttention(d_model, num_heads, d_head, model=self.model)
         # self.ln2 = LayerNorm(d_model, model=self.model)
         self.mlp = MLP(d_model, d_mlp, act_type, model=self.model)
-        self.hook_post_projz = HookPoint()
-        self.hook_mlp_out = HookPoint()
         self.hook_resid_pre = HookPoint()
         self.hook_resid_mid = HookPoint()
         self.hook_resid_post = HookPoint()
 
     def forward(self, x):
-        x = self.hook_resid_mid(x + self.hook_post_projz(self.attn((self.hook_resid_pre(x)))))
-        x = self.hook_resid_post(x + self.hook_mlp_out(self.mlp((x))))
+        x = self.hook_resid_mid(x + self.post_attn(self.attn((self.hook_resid_pre(x)))))
+        x = self.hook_resid_post(x + self.mlp((x)))
         return x
 
 
@@ -396,6 +438,10 @@ class Transformer(nn.Module):
         x = self.hook_unembed_post(self.unembed(x))
         return x
 
+    def derivative_hook(self, module, in_, out_):
+        # Not implemented
+        return out_
+
     def set_use_cache(self, use_cache):
         self.use_cache = use_cache
 
@@ -420,7 +466,21 @@ class Transformer(nn.Module):
             if incl_bwd:
                 hp.add_hook(save_hook_back, 'bwd')
 
+    def setup_hooks(self, hook):
+        # Not implemented
+        for hp in self.hook_points():
+            hp.add_hook(hook, "fwd")
 
+    def hook_activations(module, module_input, module_output):
+        # Not implemented
+        Transformer.cache[module.name] = module_output
+        return module_output
+
+    @staticmethod
+    def hook_functional_derivatives(module, module_input, module_output):
+        # Not implemented
+        """Compute functional derivatives cache[name] = derivatives"""
+        return module_output
 
 
 
