@@ -41,7 +41,7 @@ import plotly.graph_objects as go
 #     fig.show()
 
 
-def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
+def interactive_histogram(eigs, scores, which_models, n_bins, save_path, name):
     magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig))) for eig in eigs]
     all_data = torch.cat(magnitudes, dim=0).detach()
     bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins[0]
@@ -62,14 +62,14 @@ def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
                                          font=dict(size=20, color='#666')),
                        pad=dict(t=100))
 
-    layout = go.Layout(title_text='Eigenvalues', xaxis_title_text='Magnitude', yaxis_title_text='Count',
+    layout = go.Layout(title_text=name, xaxis_title_text='Magnitude', yaxis_title_text='Count',
                        xaxis=dict(range=[torch.min(all_data), torch.max(all_data)]),
                        yaxis=dict(range=[0, max(data.shape[0] for data in magnitudes)]),
                        sliders=[slider, slider_bins], showlegend=False)
 
     fig = go.Figure(data=traces, layout=layout)
-    # fig.show()
-    fig.write_html(f"{save_path}/index.html")
+    fig.show()
+    # fig.write_html(f"{save_path}/index.html")
 
 
 def plotly_bar(eigs, scores, which_models):
