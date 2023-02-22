@@ -261,12 +261,19 @@ class Embed(nn.Module):
     def __init__(self, d_vocab, d_model):
         super().__init__()
         self.W_E = nn.Parameter(torch.randn(d_model, d_vocab) / np.sqrt(d_model))
+        self.hook_input = HookPoint()
 
     def forward(self, x):
-        # print("\nPre Embedding X: ", len(x), x[:5])
-        x = torch.einsum('dbp -> bpd', self.W_E[:, x])
-        # print("\nPost Embedding X: ", x.shape, x[:5])
-        return x
+        self.hook_input(self.convert_one_hot(x))
+        out = torch.einsum('dbp -> bpd', self.W_E[:, x])
+        return out
+
+    @staticmethod
+    def convert_one_hot(batched_tensor):
+        size = batched_tensor.max() + 1
+        one_hot = torch.zeros(batched_tensor.size() + (size,)).to(device)
+        one_hot.scatter_(-1, batched_tensor.unsqueeze(-1), 1)
+        return one_hot
 
 
 class Unembed(nn.Module):
@@ -324,6 +331,7 @@ class Attention(nn.Module):
         self.hook_q = HookPoint()
         self.hook_v = HookPoint()
         self.hook_pre_softmax = HookPoint()
+        self.hook_post_softmax = HookPoint()
         self.hook_vprime = HookPoint()
         self.hook_vprime_concat = HookPoint()
 
@@ -333,7 +341,7 @@ class Attention(nn.Module):
         v = self.hook_v(torch.einsum('ihd,bpd->biph', self.W_V, x))
         attn_scores_pre = torch.einsum('biph,biqh->biqp', k, q)
         attn_scores_masked = torch.tril(attn_scores_pre) - 1e10 * (1 - self.mask[:x.shape[-2], :x.shape[-2]])
-        attn_matrix = F.softmax(self.hook_pre_softmax(attn_scores_masked / np.sqrt(self.d_head)), dim=-1)
+        attn_matrix = self.hook_post_softmax(F.softmax(self.hook_pre_softmax(attn_scores_masked / np.sqrt(self.d_head)), dim=-1))
         vprime = self.hook_vprime(torch.einsum('biph,biqp->biqh', v, attn_matrix))
         z = self.hook_vprime_concat(einops.rearrange(vprime, 'b i q h -> b q (i h)'))
         # proj_z = torch.einsum('df,bqf->bqd', self.W_O, z_concat)
@@ -364,12 +372,13 @@ class MLP(nn.Module):
         self.b_out = nn.Parameter(torch.zeros(d_model))
         self.act_type = act_type
         # self.ln = LayerNorm(d_mlp, model=self.model)
+        self.hook_preact = HookPoint()
         self.hook_hidden = HookPoint()
         self.hook_out = HookPoint()
         assert act_type in ['ReLU', 'GeLU']
 
     def forward(self, x):
-        x = torch.einsum('md,bpd->bpm', self.W_in, x) + self.b_in
+        x = self.hook_preact(torch.einsum('md,bpd->bpm', self.W_in, x) + self.b_in)
         if self.act_type == 'ReLU': x = F.relu(x)
         elif self.act_type == 'GeLU': x = F.gelu(x)
         x = self.hook_hidden(x)
