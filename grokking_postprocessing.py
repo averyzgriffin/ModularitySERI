@@ -1,11 +1,12 @@
 import os
 import einops
 import numpy as np
+import random
 import torch
 import torch.nn.functional as F
 
 from models import Transformer
-from analysis import interactive_histogram
+from analysis import interactive_histogram, plot_orthogonal_features_count
 
 
 def main(models: list, train_data, test_data, train_labels, test_labels, which_models):
@@ -70,13 +71,15 @@ def main(models: list, train_data, test_data, train_labels, test_labels, which_m
 
         all_eigenvalues = torch.cat([lam.to("cpu").detach() for lam in eigenvalues.values()], dim=0).to("cpu").detach()
 
-        scores.append(score)
         eigs.append(all_eigenvalues)
 
+        del all_eigenvalues, eigenvalues, eigenvectors, grams, train_logits, test_logits
+
     # Plots Eigens
-    n_bins = [100, 1000]
-    save_path = "delete/"
-    interactive_histogram(eigs, scores, which_models, n_bins, save_path)
+    n_bins = [100, 1000, 10000]
+    save_path = r"C:\Users\avery\Projects\github.io\averyzgriffin.github.io\gram_eigens\modular_addition"
+    interactive_histogram(eigs, test_scores, which_models, n_bins, save_path)
+    plot_orthogonal_features_count(eigs, train_scores, test_scores, which_models, n_bins, save_path)
 
 
 def load_models(model_dir, device, which_models):
