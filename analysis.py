@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 
 # def interactive_slider_and_button(list_of_eigs, list_of_scores, which_models):
@@ -42,7 +41,7 @@ from plotly.subplots import make_subplots
 #     fig.show()
 
 
-def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
+def interactive_histogram(eigs, scores, which_models, n_bins, save_path, name):
     magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig))) for eig in eigs]
     all_data = torch.cat(magnitudes, dim=0).detach()
     bin_size = (torch.max(all_data) - torch.min(all_data)) / n_bins[0]
@@ -52,7 +51,7 @@ def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
                            marker=dict(line=dict(width=1, color="black"))) for i, data in enumerate(magnitudes)]
 
     slider = dict(steps=[dict(method='update',
-                              args=[{'visible': [i == j for j in range(len(magnitudes))]}, {'title': f'Epoch {which_models[i]} Validation Loss {scores[i]}'}],
+                              args=[{'visible': [i == j for j in range(len(magnitudes))]}, {'title': f'Epoch {which_models[i]} Validation Accuracy {scores[i]}'}],
                               label=f'{which_models[i]}') for i in range(len(magnitudes))],
                   currentvalue=dict(visible=True, prefix='Epoch ', xanchor='right', font=dict(size=20, color='#666')))
 
@@ -63,14 +62,14 @@ def interactive_histogram(eigs, scores, which_models, n_bins, save_path):
                                          font=dict(size=20, color='#666')),
                        pad=dict(t=100))
 
-    layout = go.Layout(title_text='Eigenvalues', xaxis_title_text='Function Size (magnitude of eigenvalue taken from gram matrix)', yaxis_title_text='Count',
+    layout = go.Layout(title_text=name, xaxis_title_text='Magnitude', yaxis_title_text='Count',
                        xaxis=dict(range=[torch.min(all_data), torch.max(all_data)]),
                        yaxis=dict(range=[0, max(data.shape[0] for data in magnitudes)]),
                        sliders=[slider, slider_bins], showlegend=False)
 
     fig = go.Figure(data=traces, layout=layout)
-    # fig.show()
-    fig.write_html(f"{save_path}/histogram/index.html")
+    fig.show()
+    # fig.write_html(f"{save_path}/index.html")
 
 
 def plotly_bar(eigs, scores, which_models):
@@ -306,50 +305,7 @@ def plot_all(eigs_layer, eigs_net, eigs_hess, eigs_layer2, eigs_net2, eigs_hess2
     plt.show()
 
 
-def plot_orthogonal_features_count(eigs, train_scores, test_scores, which_models, n_bins, save_path):
-    magnitudes = [torch.sqrt(torch.abs(torch.tensor(eig))) for eig in eigs]
-    all_data = torch.cat(magnitudes, dim=0).detach()
 
-    count_zeros = [int(torch.sum(magnitude<.01)) for magnitude in magnitudes]
-    count_orthogonals = [int(torch.sum(magnitude>.01)) for magnitude in magnitudes]
-    # count_total = [len(magnitude) for magnitude in magnitudes]
-    # count_sum = [z+o for z,o in zip(count_zeros, count_orthogonals)]
 
-    # Create the figure with two subplots
-    fig = make_subplots(rows=2, cols=1)
-
-    # Add the first subplot with the line charts for count_zeros and count_orthogonals
-    fig.add_trace(go.Scatter(x=which_models, y=count_zeros, mode='lines', name='# of ~0 Eigenvalues'), row=2, col=1)
-    fig.add_trace(go.Scatter(x=which_models, y=count_orthogonals, mode='lines', name='# of >0 Eigenvalues'),
-                  row=2, col=1)
-
-    # Set the x-axis label and tick marks for the first subplot
-    fig.update_xaxes(title_text='Epoch', tickvals=which_models, row=2, col=1)
-
-    # Set the y-axis label for the first subplot
-    fig.update_yaxes(title_text='Count', row=2, col=1)
-
-    # Show the legend for the first subplot
-    fig.update_layout(showlegend=True)
-
-    # Add the second subplot with the line charts for train_scores and test_scores
-    fig.add_trace(go.Scatter(x=which_models, y=train_scores, mode='lines', name='Train Loss'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=which_models, y=test_scores, mode='lines', name='Validation Loss'), row=1, col=1)
-
-    # Set the x-axis label and tick marks for the second subplot
-    fig.update_xaxes(title_text='Epoch', tickvals=which_models, row=1, col=1)
-
-    # Set the y-axis label for the second subplot
-    fig.update_yaxes(title_text='Loss', row=1, col=1)
-
-    # Show the legend for the second subplot
-    fig.update_layout(showlegend=True)
-
-    # Set the figure title
-    fig.update_layout(title_text='Comparison of ~0 Eigenvalues and Loss')
-
-    # Show the figure
-    # fig.show()
-    fig.write_html(f"{save_path}/loss/index.html")
 
 

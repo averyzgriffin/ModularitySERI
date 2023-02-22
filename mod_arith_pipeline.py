@@ -1,7 +1,6 @@
-import copy
-import numpy as np
+import random
 import torch
-from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
@@ -19,9 +18,15 @@ device = torch.device("cuda:0")
 DATA_SIZE = 1234
 
 
-def main(networks, train):
+def main(networks, train, test, which_models):
     all_edges = []
+    test_scores = []
+    eigs = []
+
     for network in networks:
+
+        loss = get_loss(network, test)
+        test_scores.append(loss)
 
         gram = compute_gram(network, train)
 
@@ -41,50 +46,24 @@ def main(networks, train):
         merged_edges = torch.cat([edge.flatten().to("cpu") for edge in new_edges.values()])
         all_edges.append(merged_edges)
 
-    scores = [1]*len(all_edges)
-    which_models = [1]*len(all_edges)
-    n_bins = [100, 1000]
+        all_eigenvalues = torch.cat([lam.to("cpu").detach() for lam in lam.values()], dim=0).to("cpu").detach()
+        eigs.append(all_eigenvalues)
+
+    n_bins = [100, 1000, 10000]
     save_path = "del/"
-    interactive_histogram(all_edges, scores, which_models, n_bins, save_path)
-    print("done")
+    interactive_histogram(all_edges, test_scores, which_models, n_bins, save_path, name="Edges")
+    interactive_histogram(eigs, test_scores, which_models, n_bins, save_path, name="Eigenvalues of Gram Matrices")
 
 
-def build_model():
-    """ Build a model """
-    model = OrthogMLP(4, 3, 2, 1)
-    with torch.no_grad():
-        model.fc0.weight = nn.Parameter(torch.ones_like(model.fc0.weight))
-        model.fc1.weight = nn.Parameter(torch.tensor([[1., -2.], [3., -4.], [5., -6.]], requires_grad=True).T)
-        model.fc2.weight = nn.Parameter(torch.tensor([[1., 1.]], requires_grad=True))
-    return model
-
-
-def train_model(train_loader, test_loader, N, loss_fc, lr, opt, regularization, epochs, save_path="", model_name=""):
-    network = OrthogMLP(*N).to(device)
-    trainer = Trainer(network, N, loss_fc, lr, opt, regularization, epochs, train_loader, test_loader, device, save_path, model_name)
-    trainer.train()
-    return network
-
-
-def load_model(model_dir, device):
-    p = 113
-    d_model = 128
-    num_layers = 1
-    d_vocab = p + 1
-    n_ctx = 3
-    d_mlp = 4 * d_model
-    num_heads = 4
-    assert d_model % num_heads == 0
-    d_head = d_model // num_heads
-    act_type = 'ReLU'
-    use_ln = False
-
-    run_saved_data = torch.load(model_dir)
-    model = Transformer(num_layers=num_layers, d_vocab=d_vocab, d_model=d_model, d_mlp=d_mlp, d_head=d_head,
-                        num_heads=num_heads, n_ctx=n_ctx, act_type=act_type, use_cache=False, use_ln=use_ln)
-    model.to(device)
-    model.load_state_dict(run_saved_data['model'])
-    return model
+def get_loss(model, data):
+    losses = []
+    for b, (x, label) in enumerate(data):
+        logits = model(x.reshape(len(x), -1).to(device))[:, -1]
+        logits = logits[:, :-1]
+        loss = cross_entropy_high_precision(logits, label)
+        loss = loss.to("cpu").detach().float()
+        losses.append(loss)
+    return torch.mean(torch.tensor(losses))
 
 
 def compute_gram(model, dataloader):
@@ -281,17 +260,53 @@ def remove_hooks(model):
         h.remove()
 
 
+def load_models(model_dir, device, which_models):
+    p = 113
+    d_model = 128
+    num_layers = 1
+    d_vocab = p + 1
+    n_ctx = 3
+    d_mlp = 4 * d_model
+    num_heads = 4
+    assert d_model % num_heads == 0
+    d_head = d_model // num_heads
+    act_type = 'ReLU'
+    use_ln = False
+
+    models = []
+    for m in range(len(which_models)):
+        path = f"{model_dir}/{which_models[m]}.pth"
+        run_saved_data = torch.load(path)
+        model = Transformer(num_layers=num_layers, d_vocab=d_vocab, d_model=d_model, d_mlp=d_mlp, d_head=d_head,
+                            num_heads=num_heads, n_ctx=n_ctx, act_type=act_type, use_cache=False, use_ln=use_ln)
+        model.to(device)
+        model.load_state_dict(run_saved_data['model'])
+        models.append(model)
+    return models
+
+
+def cross_entropy_high_precision(logits, labels):
+    logprobs = F.log_softmax(logits.to(torch.float64), dim=-1)
+    prediction_logprobs = torch.gather(logprobs, index=labels[:, None], dim=-1)
+    loss = -torch.mean(prediction_logprobs)
+    return loss
+
+
 if __name__ == '__main__':
-    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\default101_final.pth"
-    network = load_model(path, device)
+    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\modular_addition\02_22_23"
+    these_models = list(range(0,10000,1000)) + list(range(10000,30000,5000))
+    networks = load_models(path, device, these_models)
 
     p = 113
     fn_name = 'add'
-    dataset = ModularArithmeticDataset(p, fn_name, device)
 
-    dataloader = DataLoader(dataset, batch_size=200, shuffle=True)
+    train_data = ModularArithmeticDataset(p, fn_name, device, split=.25, seed=0, train=True)
+    test_data = ModularArithmeticDataset(p, fn_name, device, split=.25, seed=0, train=False)
 
-    main([network, network], dataloader)
+    train_loader = DataLoader(train_data, batch_size=200, shuffle=False)  # do not shuffle since it is already shuffled
+    test_loader = DataLoader(test_data, batch_size=200, shuffle=False)
+
+    main(networks, train_loader, test_loader, these_models)
 
 
 
