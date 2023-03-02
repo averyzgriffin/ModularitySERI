@@ -50,7 +50,7 @@ def main(networks, train, test, which_models):
         eigs.append(all_eigenvalues)
 
     n_bins = [100, 1000, 10000]
-    save_path = "del/"
+    save_path = "histograms/"
     interactive_histogram(all_edges, test_scores, which_models, n_bins, save_path, name="Edges")
     interactive_histogram(eigs, test_scores, which_models, n_bins, save_path, name="Eigenvalues of Gram Matrices")
 
@@ -293,18 +293,18 @@ def cross_entropy_high_precision(logits, labels):
 
 
 if __name__ == '__main__':
-    path = r"C:\Users\Avery\Projects\ModularitySERI\saved_models\modular_addition\02_22_23"
-    these_models = list(range(0,10000,1000)) + list(range(10000,30000,5000))
+    path = r"C:\Users\avery\Projects\alignment\ModularitySERI\saved_models\modular_addition\modular_addition_blocks1_d128_heads4_p113_trainsplit28\trial000"
+    these_models = list(range(0,10000,500)) + list(range(10000,30000,1000))
     networks = load_models(path, device, these_models)
 
     p = 113
     fn_name = 'add'
 
-    train_data = ModularArithmeticDataset(p, fn_name, device, split=.25, seed=0, train=True)
-    test_data = ModularArithmeticDataset(p, fn_name, device, split=.25, seed=0, train=False)
+    train_data = ModularArithmeticDataset(p, fn_name, device, split=.28, seed=0, train=True)
+    test_data = ModularArithmeticDataset(p, fn_name, device, split=.28, seed=0, train=False)
 
-    train_loader = DataLoader(train_data, batch_size=200, shuffle=False)  # do not shuffle since it is already shuffled
-    test_loader = DataLoader(test_data, batch_size=200, shuffle=False)
+    train_loader = DataLoader(train_data, batch_size=512, shuffle=False)  # do not shuffle since it is already shuffled
+    test_loader = DataLoader(test_data, batch_size=512, shuffle=False)
 
     main(networks, train_loader, test_loader, these_models)
 
