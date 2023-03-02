@@ -146,8 +146,8 @@ def create_model_name(task_name, p, num_layers, d_model, num_heads, frac_train):
 
 
 if __name__ == "__main__":
-    train_split = [0.25]
-    num_trials = 3
+    train_split = [0.28]
+    num_trials = 1
     task = "modular_addition"
     blocks = 1
     p = 113
